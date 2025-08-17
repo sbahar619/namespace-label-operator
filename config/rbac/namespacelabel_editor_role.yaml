@@ -1,0 +1,27 @@
+# permissions for end users to edit namespacelabels.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: namespacelabel
+    app.kubernetes.io/managed-by: kustomize
+  name: namespacelabel-editor-role
+rules:
+- apiGroups:
+  - labels.shahaf.com
+  resources:
+  - namespacelabels
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - labels.shahaf.com
+  resources:
+  - namespacelabels/status
+  verbs:
+  - get
