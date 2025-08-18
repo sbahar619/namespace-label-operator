@@ -3,6 +3,11 @@ IMG ?= controller:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.29.0
 
+# Controller deployment namespace and configuration
+CONTROLLER_NAMESPACE ?= namespacelabel-system
+CONTROLLER_DEPLOYMENT ?= namespacelabel-controller-manager
+DEPLOYMENT_TIMEOUT ?= 300s
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -67,6 +72,48 @@ test: manifests generate fmt vet envtest ## Run tests.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
 test-e2e:
 	go test ./test/e2e/ -v -ginkgo.v
+
+.PHONY: test-e2e-namespacelabel  # Run comprehensive NamespaceLabel e2e tests
+test-e2e-namespacelabel:
+	go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="NamespaceLabel E2E Tests" -timeout 15m
+
+.PHONY: test-e2e-full  # Run full e2e test suite with deployment
+test-e2e-full: check-img deploy-controller wait-ready
+	@echo "🧪 Running comprehensive e2e tests..."
+	go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="NamespaceLabel E2E Tests" -timeout 15m
+
+.PHONY: test-e2e-kind  # Run e2e tests against Kind cluster with image loading
+test-e2e-kind: manifests generate
+	@echo "Building image for Kind..."
+	$(MAKE) docker-build IMG=namespacelabel:e2e-test
+	@echo "Detecting Kind cluster..."
+	@KIND_CLUSTER_NAME=$$(kind get clusters | head -1); \
+	if [ -z "$$KIND_CLUSTER_NAME" ]; then \
+		echo "❌ No Kind clusters found. Please create one with: kind create cluster"; \
+		exit 1; \
+	fi; \
+	echo "📦 Loading image to Kind cluster: $$KIND_CLUSTER_NAME"; \
+	kind load docker-image namespacelabel:e2e-test --name $$KIND_CLUSTER_NAME
+	@echo "Installing CRDs and deploying controller..."
+	$(MAKE) install
+	$(MAKE) deploy IMG=namespacelabel:e2e-test
+	@echo "Waiting for controller to be ready..."
+	$(KUBECTL) wait --for=condition=available deployment/$(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE) --timeout=$(DEPLOYMENT_TIMEOUT)
+	@echo "Running e2e tests..."
+	go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="NamespaceLabel E2E Tests" -timeout 15m
+
+.PHONY: test-e2e-current  # Run e2e tests against current kubectl context (any cluster)
+test-e2e-current: manifests generate
+	@echo "Current kubectl context: $$(kubectl config current-context)"
+	@echo "Building and deploying to current cluster..."
+	$(MAKE) docker-build IMG=namespacelabel:e2e-test
+	@echo "Installing CRDs and deploying controller..."
+	$(MAKE) install
+	$(MAKE) deploy IMG=namespacelabel:e2e-test
+	@echo "Waiting for controller to be ready..."
+	$(KUBECTL) wait --for=condition=available deployment/$(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE) --timeout=$(DEPLOYMENT_TIMEOUT)
+	@echo "Running e2e tests..."
+	go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="NamespaceLabel E2E Tests" -timeout 15m
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter & yamllint
@@ -142,6 +189,73 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+##@ Enhanced Deployment Workflow
+
+.PHONY: full-deploy
+full-deploy: check-img build-and-push deploy-controller wait-ready ## Complete deployment workflow: build, push, deploy, and wait for readiness
+	@echo "🎉 Full deployment completed successfully!"
+	@echo "📋 Controller Status:"
+	@$(KUBECTL) get deployment $(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE)
+	@echo "📊 Pod Status:"
+	@$(KUBECTL) get pods -n $(CONTROLLER_NAMESPACE) -l control-plane=controller-manager
+
+.PHONY: check-img
+check-img: ## Validate that IMG environment variable is set
+	@if [ -z "$(IMG)" ] || [ "$(IMG)" = "controller:latest" ]; then \
+		echo "❌ Error: Please set IMG environment variable to your image repository"; \
+		echo "💡 Example: export IMG=quay.io/username/namespacelabel:v1.0.0"; \
+		echo "💡 Or run: make full-deploy IMG=your-registry/namespacelabel:tag"; \
+		exit 1; \
+	fi
+	@echo "✅ Using image: $(IMG)"
+
+.PHONY: build-and-push
+build-and-push: check-img docker-build docker-push ## Build and push container image
+	@echo "✅ Image $(IMG) built and pushed successfully"
+
+.PHONY: deploy-controller
+deploy-controller: install deploy ## Install CRDs and deploy controller
+	@echo "✅ Controller deployed successfully"
+
+.PHONY: wait-ready
+wait-ready: ## Wait for controller deployment to be ready
+	@echo "⏳ Waiting for controller to be ready (timeout: $(DEPLOYMENT_TIMEOUT))..."
+	@$(KUBECTL) wait --for=condition=available deployment/$(CONTROLLER_DEPLOYMENT) \
+		-n $(CONTROLLER_NAMESPACE) --timeout=$(DEPLOYMENT_TIMEOUT)
+	@echo "✅ Controller is ready!"
+
+.PHONY: quick-deploy
+quick-deploy: check-img build-and-push deploy-controller ## Quick deployment without waiting (for faster iteration)
+	@echo "🚀 Quick deployment completed! Controller is starting up..."
+
+.PHONY: deploy-status
+deploy-status: ## Show detailed deployment status
+	@echo "📊 Deployment Status for $(IMG):"
+	@echo ""
+	@echo "🏗️  Controller Deployment:"
+	@$(KUBECTL) get deployment $(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE) -o wide 2>/dev/null || echo "❌ Controller not deployed"
+	@echo ""
+	@echo "🚀 Controller Pods:"
+	@$(KUBECTL) get pods -n $(CONTROLLER_NAMESPACE) -l control-plane=controller-manager -o wide 2>/dev/null || echo "❌ No controller pods found"
+	@echo ""
+	@echo "📋 Recent Events:"
+	@$(KUBECTL) get events -n $(CONTROLLER_NAMESPACE) --sort-by='.lastTimestamp' | tail -10 2>/dev/null || echo "❌ No events found"
+
+.PHONY: deploy-logs
+deploy-logs: ## Show controller logs (last 50 lines)
+	@echo "📋 Controller Logs (last 50 lines):"
+	@$(KUBECTL) logs deployment/$(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE) --tail=50 --timestamps 2>/dev/null || echo "❌ Controller not found"
+
+.PHONY: deploy-logs-follow
+deploy-logs-follow: ## Follow controller logs in real-time
+	@echo "📋 Following controller logs (Ctrl+C to stop):"
+	@$(KUBECTL) logs deployment/$(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE) -f --timestamps
+
+.PHONY: full-cleanup
+full-cleanup: undeploy uninstall ## Complete cleanup: undeploy controller and remove CRDs
+	@echo "🧹 Full cleanup completed"
+	@echo "💡 To redeploy, run: make full-deploy IMG=your-image:tag"
 
 ##@ Dependencies
 
