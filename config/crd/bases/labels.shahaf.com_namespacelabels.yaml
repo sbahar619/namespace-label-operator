@@ -42,15 +42,10 @@ spec:
               labels:
                 additionalProperties:
                   type: string
-                description: Labels is a map of key-value pairs to apply to the target
-                  Namespace.
+                description: |-
+                  Labels is a map of key-value pairs to apply to the namespace where this CR is created.
+                  The target namespace is always the same as the CR's metadata.namespace for security.
                 type: object
-              namespace:
-                description: Namespace is the target namespace where labels will be
-                  applied.
-                type: string
-            required:
-            - namespace
             type: object
           status:
             description: NamespaceLabelStatus defines the observed state of NamespaceLabel

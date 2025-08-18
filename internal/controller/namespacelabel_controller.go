@@ -61,11 +61,8 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	// Determine target namespace: use spec.Namespace if specified, otherwise use CR's namespace
+	// Target namespace is always the same as the CR's namespace for multi-tenant security
 	targetNS := req.Namespace
-	if exists && current.Spec.Namespace != "" {
-		targetNS = current.Spec.Namespace
-	}
 	if targetNS == "" {
 		// Should never happen for namespaced resources, but be defensive
 		return ctrl.Result{}, nil
@@ -88,25 +85,13 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	// List ALL NamespaceLabel CRs targeting this namespace and merge labels.
+	// List ALL NamespaceLabel CRs in this namespace and merge labels.
 	var list labelsv1alpha1.NamespaceLabelList
-	if err := r.List(ctx, &list); err != nil {
+	if err := r.List(ctx, &list, client.InNamespace(targetNS)); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Filter CRs that target this namespace
-	var relevantCRs []labelsv1alpha1.NamespaceLabel
-	for _, cr := range list.Items {
-		crTargetNS := cr.Namespace
-		if cr.Spec.Namespace != "" {
-			crTargetNS = cr.Spec.Namespace
-		}
-		if crTargetNS == targetNS {
-			relevantCRs = append(relevantCRs, cr)
-		}
-	}
-
-	desired, perKeyWinners := mergeDesiredLabels(relevantCRs)
+	desired, perKeyWinners := mergeDesiredLabels(list.Items)
 
 	// Load what we previously applied (from annotation) to compute removals safely.
 	prevApplied := readAppliedAnnotation(&ns)
@@ -183,11 +168,8 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 func (r *NamespaceLabelReconciler) handleDeletion(ctx context.Context, cr *labelsv1alpha1.NamespaceLabel) (ctrl.Result, error) {
 	l := log.FromContext(ctx)
 
-	// Determine target namespace
+	// Target namespace is always the same as the CR's namespace
 	targetNS := cr.Namespace
-	if cr.Spec.Namespace != "" {
-		targetNS = cr.Spec.Namespace
-	}
 
 	// Get the target namespace
 	var ns corev1.Namespace
@@ -200,24 +182,18 @@ func (r *NamespaceLabelReconciler) handleDeletion(ctx context.Context, cr *label
 		return ctrl.Result{}, err
 	}
 
-	// Get all remaining CRs targeting this namespace (excluding the one being deleted)
+	// Get all remaining CRs in this namespace (excluding the one being deleted)
 	var list labelsv1alpha1.NamespaceLabelList
-	if err := r.List(ctx, &list); err != nil {
+	if err := r.List(ctx, &list, client.InNamespace(targetNS)); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	var remainingCRs []labelsv1alpha1.NamespaceLabel
 	for _, otherCR := range list.Items {
-		if otherCR.Name == cr.Name && otherCR.Namespace == cr.Namespace {
+		if otherCR.Name == cr.Name {
 			continue // Skip the one being deleted
 		}
-		crTargetNS := otherCR.Namespace
-		if otherCR.Spec.Namespace != "" {
-			crTargetNS = otherCR.Spec.Namespace
-		}
-		if crTargetNS == targetNS {
-			remainingCRs = append(remainingCRs, otherCR)
-		}
+		remainingCRs = append(remainingCRs, otherCR)
 	}
 
 	// Calculate what labels should remain after this CR is deleted

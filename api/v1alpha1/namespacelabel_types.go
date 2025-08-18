@@ -22,10 +22,8 @@ import (
 
 // NamespaceLabelSpec defines the desired state of NamespaceLabel
 type NamespaceLabelSpec struct {
-    // Namespace is the target namespace where labels will be applied.
-    Namespace string `json:"namespace"`
-
-    // Labels is a map of key-value pairs to apply to the target Namespace.
+    // Labels is a map of key-value pairs to apply to the namespace where this CR is created.
+    // The target namespace is always the same as the CR's metadata.namespace for security.
     Labels map[string]string `json:"labels,omitempty"`
 }
 

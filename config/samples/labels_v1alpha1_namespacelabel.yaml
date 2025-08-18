@@ -5,5 +5,10 @@ metadata:
     app.kubernetes.io/name: namespacelabel
     app.kubernetes.io/managed-by: kustomize
   name: namespacelabel-sample
+  namespace: default
 spec:
-  # TODO(user): Add fields here
+  # Labels are applied to the same namespace as this CR (default) for security
+  labels:
+    environment: "development"
+    team: "platform"
+    managed-by: "namespacelabel-operator"
