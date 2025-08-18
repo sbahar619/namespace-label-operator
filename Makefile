@@ -56,12 +56,7 @@ test: manifests generate fmt vet envtest ## Run tests.
 
 .PHONY: test-e2e
 test-e2e: ## Run the e2e tests against the current cluster.
-	go test ./test/e2e/ -v -ginkgo.v
-
-.PHONY: test-e2e-full
-test-e2e-full: check-img deploy-controller wait-ready ## Run full e2e test suite with deployment.
-	@echo "🧪 Running comprehensive e2e tests..."
-	go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="NamespaceLabel E2E Tests" -timeout 15m
+	go test ./test/e2e/ -v -ginkgo.v -timeout 15m
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter.
