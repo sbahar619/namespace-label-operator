@@ -20,22 +20,26 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // NamespaceLabelSpec defines the desired state of NamespaceLabel
 type NamespaceLabelSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+    // Namespace is the target namespace where labels will be applied.
+    Namespace string `json:"namespace"`
 
-	// Foo is an example field of NamespaceLabel. Edit namespacelabel_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+    // Labels is a map of key-value pairs to apply to the target Namespace.
+    Labels map[string]string `json:"labels,omitempty"`
 }
+
 
 // NamespaceLabelStatus defines the observed state of NamespaceLabel
 type NamespaceLabelStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+    // Applied indicates whether the labels were successfully applied
+    Applied bool `json:"applied,omitempty"`
+
+    // Message gives details about the last reconcile attempt
+    Message string `json:"message,omitempty"`
+
+	// Conditions represent the latest available observations of the resource’s state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
