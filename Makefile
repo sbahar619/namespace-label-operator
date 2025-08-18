@@ -253,9 +253,13 @@ deploy-logs-follow: ## Follow controller logs in real-time
 	@$(KUBECTL) logs deployment/$(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE) -f --timestamps
 
 .PHONY: full-cleanup
-full-cleanup: undeploy uninstall ## Complete cleanup: undeploy controller and remove CRDs
+full-cleanup: undeploy uninstall-safe ## Complete cleanup: undeploy controller and remove CRDs
 	@echo "🧹 Full cleanup completed"
 	@echo "💡 To redeploy, run: make full-deploy IMG=your-image:tag"
+
+.PHONY: uninstall-safe
+uninstall-safe: ## Safely uninstall CRDs (ignores not-found errors)
+	$(MAKE) uninstall ignore-not-found=true
 
 ##@ Dependencies
 
