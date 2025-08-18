@@ -20,11 +20,47 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ProtectionMode defines how the operator handles attempts to modify protected labels
+// +kubebuilder:validation:Enum=skip;warn;fail
+type ProtectionMode string
+
+const (
+	// ProtectionModeSkip silently skips protected labels without error
+	ProtectionModeSkip ProtectionMode = "skip"
+	// ProtectionModeWarn skips protected labels but logs warnings and updates status
+	ProtectionModeWarn ProtectionMode = "warn"
+	// ProtectionModeFail fails the entire reconciliation if any protected labels are attempted
+	ProtectionModeFail ProtectionMode = "fail"
+)
+
 // NamespaceLabelSpec defines the desired state of NamespaceLabel
 type NamespaceLabelSpec struct {
 	// Labels is a map of key-value pairs to apply to the namespace where this CR is created.
 	// The target namespace is always the same as the CR's metadata.namespace for security.
 	Labels map[string]string `json:"labels,omitempty"`
+
+	// ProtectedLabelPatterns is a list of glob patterns for label keys that should not be overwritten.
+	// If a label in the spec matches any of these patterns and the label already exists on the namespace
+	// with a different value, the behavior is controlled by protectionMode.
+	// Common patterns: "kubernetes.io/*", "*.k8s.io/*", "istio.io/*", "pod-security.kubernetes.io/*"
+	// +optional
+	ProtectedLabelPatterns []string `json:"protectedLabelPatterns,omitempty"`
+
+	// ProtectionMode controls behavior when attempting to modify protected labels.
+	// - skip: Silently skip protected labels (default)
+	// - warn: Skip protected labels but log warnings and update status
+	// - fail: Fail the entire reconciliation if any protected labels are attempted
+	// +kubebuilder:default=skip
+	// +optional
+	ProtectionMode ProtectionMode `json:"protectionMode,omitempty"`
+
+	// IgnoreExistingProtectedLabels when true, allows the operator to manage labels that match
+	// protected patterns if they were previously applied by this operator (tracked in annotation).
+	// This provides a way to manage labels that match protection patterns when the operator
+	// is the original source of truth for those labels.
+	// +kubebuilder:default=false
+	// +optional
+	IgnoreExistingProtectedLabels bool `json:"ignoreExistingProtectedLabels,omitempty"`
 }
 
 // NamespaceLabelStatus defines the observed state of NamespaceLabel
@@ -35,8 +71,16 @@ type NamespaceLabelStatus struct {
 	// Message gives details about the last reconcile attempt
 	Message string `json:"message,omitempty"`
 
-	// Conditions represent the latest available observations of the resource’s state
+	// Conditions represent the latest available observations of the resource's state
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ProtectedLabelsSkipped lists label keys that were skipped due to protection
+	// +optional
+	ProtectedLabelsSkipped []string `json:"protectedLabelsSkipped,omitempty"`
+
+	// LabelsApplied lists the label keys that were successfully applied
+	// +optional
+	LabelsApplied []string `json:"labelsApplied,omitempty"`
 }
 
 //+kubebuilder:object:root=true

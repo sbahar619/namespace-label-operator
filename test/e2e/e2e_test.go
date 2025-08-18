@@ -217,4 +217,91 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 			}, time.Minute, time.Second).Should(BeTrue())
 		})
 	})
+
+	Context("Label Protection", func() {
+		It("should skip protected labels in skip mode", func() {
+			By("Pre-setting a protected label on the namespace")
+			ns := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)).To(Succeed())
+			if ns.Labels == nil {
+				ns.Labels = make(map[string]string)
+			}
+			ns.Labels["kubernetes.io/managed-by"] = "system"
+			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
+
+			By("Creating a NamespaceLabel CR with protection patterns")
+			cr := &labelsv1alpha1.NamespaceLabel{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "labels",
+					Namespace: testNS,
+				},
+				Spec: labelsv1alpha1.NamespaceLabelSpec{
+					Labels: map[string]string{
+						"environment":             "test",
+						"kubernetes.io/managed-by": "namespacelabel-operator", // This should be skipped
+					},
+					ProtectedLabelPatterns: []string{"kubernetes.io/*"},
+					ProtectionMode:         "skip",
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+
+			By("Verifying the environment label was applied but protected label was skipped")
+			Eventually(func() map[string]string {
+				updatedNS := &corev1.Namespace{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, updatedNS)
+				if err != nil {
+					return nil
+				}
+				return updatedNS.Labels
+			}, time.Minute, time.Second*2).Should(And(
+				HaveKeyWithValue("environment", "test"),              // Should be applied
+				HaveKeyWithValue("kubernetes.io/managed-by", "system"), // Should remain unchanged
+			))
+
+			By("Checking the status shows skipped labels")
+			Eventually(func() []string {
+				found := &labelsv1alpha1.NamespaceLabel{}
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "labels",
+					Namespace: testNS,
+				}, found)
+				if err != nil {
+					return nil
+				}
+				return found.Status.ProtectedLabelsSkipped
+			}, time.Minute, time.Second).Should(ContainElement("kubernetes.io/managed-by"))
+		})
+
+		It("should allow override with ignoreExistingProtectedLabels", func() {
+			By("Creating a NamespaceLabel CR with ignoreExistingProtectedLabels enabled")
+			cr := &labelsv1alpha1.NamespaceLabel{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "labels",
+					Namespace: testNS,
+				},
+				Spec: labelsv1alpha1.NamespaceLabelSpec{
+					Labels: map[string]string{
+						"kubernetes.io/test-label": "managed-value",
+					},
+					ProtectedLabelPatterns:        []string{"kubernetes.io/*"},
+					ProtectionMode:                "skip",
+					IgnoreExistingProtectedLabels: true,
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+
+			By("Verifying the protected label was applied because we're the original setter")
+			Eventually(func() string {
+				ns := &corev1.Namespace{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)
+				if err != nil || ns.Labels == nil {
+					return ""
+				}
+				return ns.Labels["kubernetes.io/test-label"]
+			}, time.Minute, time.Second*2).Should(Equal("managed-value"))
+		})
+	})
 })

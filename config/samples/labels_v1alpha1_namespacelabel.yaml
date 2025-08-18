@@ -13,3 +13,15 @@ spec:
     environment: "development"
     team: "platform"
     managed-by: "namespacelabel-operator"
+  
+  # Protection configuration - prevent overwriting important management labels
+  protectedLabelPatterns:
+    - "kubernetes.io/*"          # Protect all kubernetes.io labels
+    - "*.k8s.io/*"              # Protect all k8s.io domain labels
+    - "pod-security.kubernetes.io/*"  # Protect pod security labels
+  
+  # Protection mode - skip protected labels silently (default: skip)
+  protectionMode: skip
+  
+  # Allow managing labels that match protection patterns if we applied them originally
+  ignoreExistingProtectedLabels: false

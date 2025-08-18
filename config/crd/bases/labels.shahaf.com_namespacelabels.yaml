@@ -39,6 +39,14 @@ spec:
           spec:
             description: NamespaceLabelSpec defines the desired state of NamespaceLabel
             properties:
+              ignoreExistingProtectedLabels:
+                default: false
+                description: |-
+                  IgnoreExistingProtectedLabels when true, allows the operator to manage labels that match
+                  protected patterns if they were previously applied by this operator (tracked in annotation).
+                  This provides a way to manage labels that match protection patterns when the operator
+                  is the original source of truth for those labels.
+                type: boolean
               labels:
                 additionalProperties:
                   type: string
@@ -46,6 +54,27 @@ spec:
                   Labels is a map of key-value pairs to apply to the namespace where this CR is created.
                   The target namespace is always the same as the CR's metadata.namespace for security.
                 type: object
+              protectedLabelPatterns:
+                description: |-
+                  ProtectedLabelPatterns is a list of glob patterns for label keys that should not be overwritten.
+                  If a label in the spec matches any of these patterns and the label already exists on the namespace
+                  with a different value, the behavior is controlled by protectionMode.
+                  Common patterns: "kubernetes.io/*", "*.k8s.io/*", "istio.io/*", "pod-security.kubernetes.io/*"
+                items:
+                  type: string
+                type: array
+              protectionMode:
+                default: skip
+                description: |-
+                  ProtectionMode controls behavior when attempting to modify protected labels.
+                  - skip: Silently skip protected labels (default)
+                  - warn: Skip protected labels but log warnings and update status
+                  - fail: Fail the entire reconciliation if any protected labels are attempted
+                enum:
+                - skip
+                - warn
+                - fail
+                type: string
             type: object
           status:
             description: NamespaceLabelStatus defines the observed state of NamespaceLabel
@@ -56,7 +85,7 @@ spec:
                 type: boolean
               conditions:
                 description: Conditions represent the latest available observations
-                  of the resource’s state
+                  of the resource's state
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource.\n---\nThis struct is intended for
@@ -125,9 +154,21 @@ spec:
                   - type
                   type: object
                 type: array
+              labelsApplied:
+                description: LabelsApplied lists the label keys that were successfully
+                  applied
+                items:
+                  type: string
+                type: array
               message:
                 description: Message gives details about the last reconcile attempt
                 type: string
+              protectedLabelsSkipped:
+                description: ProtectedLabelsSkipped lists label keys that were skipped
+                  due to protection
+                items:
+                  type: string
+                type: array
             type: object
         type: object
     served: true
