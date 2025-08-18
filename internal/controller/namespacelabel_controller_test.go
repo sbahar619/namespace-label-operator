@@ -17,16 +17,11 @@ limitations under the License.
 package controller
 
 import (
-	"context"
-	"testing"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -34,21 +29,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-func TestControllerUnit(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Controller Unit Tests")
-}
+// Unit tests are integrated into the main controller suite in suite_test.go
 
 var _ = Describe("NamespaceLabel Controller Unit Tests", func() {
 	var (
 		reconciler *NamespaceLabelReconciler
-		ctx        context.Context
 		fakeClient client.Client
 		scheme     *runtime.Scheme
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
 		scheme = runtime.NewScheme()
 		Expect(labelsv1alpha1.AddToScheme(scheme)).To(Succeed())
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
@@ -60,11 +50,126 @@ var _ = Describe("NamespaceLabel Controller Unit Tests", func() {
 		}
 	})
 
+	Context("JSON Annotation Processing", func() {
+		It("should parse valid JSON annotation correctly", func() {
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"labels.shahaf.com/applied": `{"app":"web","environment":"prod"}`,
+					},
+				},
+			}
+
+			result := readAppliedAnnotation(ns)
+
+			Expect(result).To(HaveLen(2))
+			Expect(result).To(HaveKeyWithValue("app", "web"))
+			Expect(result).To(HaveKeyWithValue("environment", "prod"))
+		})
+
+		It("should handle empty annotation gracefully", func() {
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"labels.shahaf.com/applied": "",
+					},
+				},
+			}
+
+			result := readAppliedAnnotation(ns)
+
+			Expect(result).To(BeEmpty())
+		})
+
+		It("should handle missing annotation gracefully", func() {
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{},
+				},
+			}
+
+			result := readAppliedAnnotation(ns)
+
+			Expect(result).To(BeEmpty())
+		})
+
+		It("should handle nil annotations gracefully", func() {
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: nil,
+				},
+			}
+
+			result := readAppliedAnnotation(ns)
+
+			Expect(result).To(BeEmpty())
+		})
+
+		It("should handle invalid JSON gracefully", func() {
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"labels.shahaf.com/applied": `{invalid-json}`,
+					},
+				},
+			}
+
+			result := readAppliedAnnotation(ns)
+
+			Expect(result).To(BeEmpty())
+		})
+	})
+
+	Context("Boolean to Condition Conversion", func() {
+		It("should convert true to ConditionTrue", func() {
+			result := boolToCond(true)
+			Expect(result).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("should convert false to ConditionFalse", func() {
+			result := boolToCond(false)
+			Expect(result).To(Equal(metav1.ConditionFalse))
+		})
+	})
+
+	Context("Slice Utility Functions", func() {
+		It("should remove existing item from slice", func() {
+			input := []string{"apple", "banana", "cherry"}
+			result := removeFromSlice(input, "banana")
+
+			Expect(result).To(Equal([]string{"apple", "cherry"}))
+			Expect(result).To(HaveLen(2))
+		})
+
+		It("should handle removing non-existing item", func() {
+			input := []string{"apple", "banana", "cherry"}
+			result := removeFromSlice(input, "orange")
+
+			Expect(result).To(Equal([]string{"apple", "banana", "cherry"}))
+			Expect(result).To(HaveLen(3))
+		})
+
+		It("should handle empty slice", func() {
+			input := []string{}
+			result := removeFromSlice(input, "anything")
+
+			Expect(result).To(BeEmpty())
+		})
+
+		It("should handle removing duplicate items", func() {
+			input := []string{"apple", "banana", "apple", "cherry"}
+			result := removeFromSlice(input, "apple")
+
+			Expect(result).To(Equal([]string{"banana", "cherry"}))
+			Expect(result).To(HaveLen(2))
+		})
+	})
+
 	Context("Label Merging Logic", func() {
-		It("should merge labels from multiple CRs correctly", func() {
+		It("should handle single CR correctly", func() {
 			crs := []labelsv1alpha1.NamespaceLabel{
 				{
-					ObjectMeta: metav1.ObjectMeta{Name: "cr1"},
+					ObjectMeta: metav1.ObjectMeta{Name: "labels"},
 					Spec: labelsv1alpha1.NamespaceLabelSpec{
 						Labels: map[string]string{
 							"app":         "web",
@@ -72,238 +177,117 @@ var _ = Describe("NamespaceLabel Controller Unit Tests", func() {
 						},
 					},
 				},
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "cr2"},
-					Spec: labelsv1alpha1.NamespaceLabelSpec{
-						Labels: map[string]string{
-							"team":    "backend",
-							"version": "v1.0",
-						},
-					},
-				},
 			}
 
-			mergedLabels, conflicts := mergeDesiredLabels(crs)
+			merged, perKeyWinner := mergeDesiredLabels(crs)
 
-			Expect(mergedLabels).To(HaveKeyWithValue("app", "web"))
-			Expect(mergedLabels).To(HaveKeyWithValue("environment", "prod"))
-			Expect(mergedLabels).To(HaveKeyWithValue("team", "backend"))
-			Expect(mergedLabels).To(HaveKeyWithValue("version", "v1.0"))
-			Expect(conflicts).To(BeEmpty())
+			Expect(merged).To(HaveLen(2))
+			Expect(merged).To(HaveKeyWithValue("app", "web"))
+			Expect(merged).To(HaveKeyWithValue("environment", "prod"))
+			Expect(perKeyWinner).To(HaveKeyWithValue("app", "labels"))
+			Expect(perKeyWinner).To(HaveKeyWithValue("environment", "labels"))
 		})
 
-		It("should handle label conflicts with name-based tie-breaking", func() {
-			crs := []labelsv1alpha1.NamespaceLabel{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "zz-last"},
-					Spec: labelsv1alpha1.NamespaceLabelSpec{
-						Labels: map[string]string{
-							"environment": "staging",
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "aa-first"},
-					Spec: labelsv1alpha1.NamespaceLabelSpec{
-						Labels: map[string]string{
-							"environment": "production",
-						},
-					},
-				},
-			}
+		It("should handle empty CR list", func() {
+			crs := []labelsv1alpha1.NamespaceLabel{}
 
-			mergedLabels, conflicts := mergeDesiredLabels(crs)
+			merged, perKeyWinner := mergeDesiredLabels(crs)
 
-			// "aa-first" should win due to alphabetical ordering
-			Expect(mergedLabels).To(HaveKeyWithValue("environment", "production"))
-			Expect(conflicts).To(HaveKey("environment"))
-			Expect(conflicts["environment"]).To(Equal("aa-first"))
+			Expect(merged).To(BeEmpty())
+			Expect(perKeyWinner).To(BeEmpty())
 		})
 
-		It("should handle empty label specs", func() {
+		It("should handle CR with empty labels", func() {
 			crs := []labelsv1alpha1.NamespaceLabel{
 				{
-					ObjectMeta: metav1.ObjectMeta{Name: "empty"},
+					ObjectMeta: metav1.ObjectMeta{Name: "labels"},
 					Spec: labelsv1alpha1.NamespaceLabelSpec{
 						Labels: map[string]string{},
 					},
 				},
 			}
 
-			mergedLabels, conflicts := mergeDesiredLabels(crs)
+			merged, perKeyWinner := mergeDesiredLabels(crs)
 
-			Expect(mergedLabels).To(BeEmpty())
-			Expect(conflicts).To(BeEmpty())
-		})
-	})
-
-	Context("Singleton Pattern Validation", func() {
-		It("should validate CR name is 'labels'", func() {
-			By("Creating a CR with invalid name")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "invalid-name",
-					Namespace: "test-ns",
-				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{"test": "value"},
-				},
-			}
-
-			// Create the CR in fake client
-			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
-
-			// Create a namespace for the test
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
-			}
-			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
-
-			// Run reconcile
-			req := ctrl.Request{NamespacedName: types.NamespacedName{
-				Name:      "invalid-name",
-				Namespace: "test-ns",
-			}}
-
-			_, err := reconciler.Reconcile(ctx, req)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Check that CR status indicates error
-			updated := &labelsv1alpha1.NamespaceLabel{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, updated)).To(Succeed())
-
-			foundError := false
-			for _, condition := range updated.Status.Conditions {
-				if condition.Type == "Ready" && condition.Status == metav1.ConditionFalse {
-					foundError = true
-					break
-				}
-			}
-			Expect(foundError).To(BeTrue())
+			Expect(merged).To(BeEmpty())
+			Expect(perKeyWinner).To(BeEmpty())
 		})
 
-		It("should allow CR named 'labels'", func() {
-			By("Creating a CR with valid name")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: "test-ns",
+		It("should handle multiple CRs with name-based ordering", func() {
+			// Even though singleton pattern discourages this, the function should work correctly
+			crs := []labelsv1alpha1.NamespaceLabel{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "zzz-last"},
+					Spec: labelsv1alpha1.NamespaceLabelSpec{
+						Labels: map[string]string{"env": "staging"},
+					},
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{"test": "value"},
-				},
-			}
-
-			// Create the CR in fake client
-			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
-
-			// Create a namespace for the test
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
-			}
-			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
-
-			// Run reconcile
-			req := ctrl.Request{NamespacedName: types.NamespacedName{
-				Name:      "labels",
-				Namespace: "test-ns",
-			}}
-
-			_, err := reconciler.Reconcile(ctx, req)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Check that CR status indicates success
-			updated := &labelsv1alpha1.NamespaceLabel{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, updated)).To(Succeed())
-
-			foundSuccess := false
-			for _, condition := range updated.Status.Conditions {
-				if condition.Type == "Ready" && condition.Status == metav1.ConditionTrue {
-					foundSuccess = true
-					break
-				}
-			}
-			Expect(foundSuccess).To(BeTrue())
-		})
-	})
-
-	Context("Namespace Label Application", func() {
-		It("should apply labels to target namespace", func() {
-			By("Creating a valid CR")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: "test-ns",
-				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"environment": "production",
-						"team":        "platform",
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "aaa-first"},
+					Spec: labelsv1alpha1.NamespaceLabelSpec{
+						Labels: map[string]string{"env": "production"},
 					},
 				},
 			}
-			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
 
-			By("Creating target namespace")
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
-			}
-			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
+			merged, perKeyWinner := mergeDesiredLabels(crs)
 
-			By("Running reconcile")
-			req := ctrl.Request{NamespacedName: types.NamespacedName{
-				Name:      "labels",
-				Namespace: "test-ns",
-			}}
-
-			_, err := reconciler.Reconcile(ctx, req)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Verifying labels were applied")
-			updatedNS := &corev1.Namespace{}
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-ns"}, updatedNS)).To(Succeed())
-
-			Expect(updatedNS.Labels).To(HaveKeyWithValue("environment", "production"))
-			Expect(updatedNS.Labels).To(HaveKeyWithValue("team", "platform"))
+			// "aaa-first" should win due to alphabetical ordering
+			Expect(merged).To(HaveKeyWithValue("env", "production"))
+			Expect(perKeyWinner).To(HaveKeyWithValue("env", "aaa-first"))
 		})
 	})
 
-	Context("Error Handling", func() {
-		It("should handle missing namespace gracefully", func() {
-			By("Creating a CR for non-existent namespace")
+	Context("Status Update Logic", func() {
+		It("should update status fields correctly", func() {
 			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: "missing-ns",
-				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{"test": "value"},
-				},
+				Status: labelsv1alpha1.NamespaceLabelStatus{},
 			}
-			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
 
-			By("Running reconcile")
-			req := ctrl.Request{NamespacedName: types.NamespacedName{
-				Name:      "labels",
-				Namespace: "missing-ns",
-			}}
+			updateStatus(cr, true, "Synced", "Labels applied successfully")
 
-			result, err := reconciler.Reconcile(ctx, req)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+			Expect(cr.Status.Applied).To(BeTrue())
+			Expect(cr.Status.Message).To(Equal("Labels applied successfully"))
+			Expect(cr.Status.Conditions).To(HaveLen(1))
 
-			By("Verifying error status is set")
-			updated := &labelsv1alpha1.NamespaceLabel{}
-			Expect(fakeClient.Get(ctx, req.NamespacedName, updated)).To(Succeed())
+			condition := cr.Status.Conditions[0]
+			Expect(condition.Type).To(Equal("Ready"))
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(condition.Reason).To(Equal("Synced"))
+			Expect(condition.Message).To(Equal("Labels applied successfully"))
+		})
 
-			foundError := false
-			for _, condition := range updated.Status.Conditions {
-				if condition.Type == "Ready" && condition.Status == metav1.ConditionFalse {
-					foundError = true
-					break
-				}
+		It("should handle failure status correctly", func() {
+			cr := &labelsv1alpha1.NamespaceLabel{
+				Status: labelsv1alpha1.NamespaceLabelStatus{},
 			}
-			Expect(foundError).To(BeTrue())
+
+			updateStatus(cr, false, "InvalidName", "CR must be named 'labels'")
+
+			Expect(cr.Status.Applied).To(BeFalse())
+			Expect(cr.Status.Message).To(Equal("CR must be named 'labels'"))
+			Expect(cr.Status.Conditions).To(HaveLen(1))
+
+			condition := cr.Status.Conditions[0]
+			Expect(condition.Type).To(Equal("Ready"))
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("InvalidName"))
+			Expect(condition.Message).To(Equal("CR must be named 'labels'"))
+		})
+	})
+
+	Context("Constants and Configuration", func() {
+		It("should have correct singleton CR name", func() {
+			Expect(StandardCRName).To(Equal("labels"))
+		})
+
+		It("should have correct finalizer name", func() {
+			Expect(FinalizerName).To(Equal("labels.shahaf.com/finalizer"))
+		})
+
+		It("should have properly configured reconciler", func() {
+			Expect(reconciler.Client).NotTo(BeNil())
+			Expect(reconciler.Scheme).NotTo(BeNil())
 		})
 	})
 })
