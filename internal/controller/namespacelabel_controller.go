@@ -50,10 +50,22 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Enforce singleton pattern: only allow CR named "labels"
 	if exists && current.Name != StandardCRName {
-		l.Error(nil, "NamespaceLabel CR must be named 'labels' for consistency across the platform", 
-			"namespace", current.Namespace, "actualName", current.Name, "requiredName", StandardCRName)
-		updateStatus(&current, false, "InvalidName", 
-			fmt.Sprintf("NamespaceLabel CR must be named '%s' for platform consistency", StandardCRName))
+		// Check if a valid "labels" CR already exists to provide context-aware message
+		var labelsInstance labelsv1alpha1.NamespaceLabel
+		labelsExists := r.Get(ctx, types.NamespacedName{Name: StandardCRName, Namespace: current.Namespace}, &labelsInstance) == nil
+		
+		var message string
+		if labelsExists {
+			message = fmt.Sprintf("NamespaceLabel CR must be named '%s'. A valid '%s' CR already exists in this namespace. Please delete this CR and update the existing '%s' CR instead.", 
+				StandardCRName, StandardCRName, StandardCRName)
+		} else {
+			message = fmt.Sprintf("NamespaceLabel CR must be named '%s' for platform consistency. Please delete this CR and create a new one named '%s'.", 
+				StandardCRName, StandardCRName)
+		}
+		
+		l.Error(nil, "NamespaceLabel CR has invalid name", 
+			"namespace", current.Namespace, "actualName", current.Name, "requiredName", StandardCRName, "labelsInstanceExists", labelsExists)
+		updateStatus(&current, false, "InvalidName", message)
 		if err := r.Status().Update(ctx, &current); err != nil {
 			l.Error(err, "failed to update status for invalid name")
 		}
@@ -76,10 +88,29 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		
 		if activeCRs > 1 {
-			l.Error(nil, "Multiple NamespaceLabel CRs found in namespace - only one allowed", 
-				"namespace", current.Namespace, "count", activeCRs)
-			updateStatus(&current, false, "MultipleInstances", 
-				"Only one NamespaceLabel CR is allowed per namespace. Please delete other instances.")
+			// Build list of CR names for helpful error message
+			var crNames []string
+			for _, cr := range allCRs.Items {
+				if cr.DeletionTimestamp == nil {
+					crNames = append(crNames, cr.Name)
+				}
+			}
+			
+			// Create context-aware message with specific guidance
+			var message string
+			if current.Name == StandardCRName {
+				// This is the valid "labels" CR, but others exist
+				message = fmt.Sprintf("Multiple NamespaceLabel CRs detected (%d active: %v). Only one CR named '%s' is allowed per namespace. Please delete the other CRs: %v", 
+					activeCRs, crNames, StandardCRName, removeFromSlice(crNames, StandardCRName))
+			} else {
+				// This is an invalid CR name and others exist
+				message = fmt.Sprintf("Multiple NamespaceLabel CRs detected (%d active: %v). Only one CR named '%s' is allowed per namespace. Please delete this CR and keep only the '%s' CR.", 
+					activeCRs, crNames, StandardCRName, StandardCRName)
+			}
+			
+			l.Error(nil, "Multiple NamespaceLabel CRs found in namespace", 
+				"namespace", current.Namespace, "count", activeCRs, "crNames", crNames)
+			updateStatus(&current, false, "MultipleInstances", message)
 			if err := r.Status().Update(ctx, &current); err != nil {
 				l.Error(err, "failed to update status for multiple instances")
 			}
@@ -114,7 +145,9 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if apierrors.IsNotFound(err) {
 			// Namespace missing; if CR exists, update its status
 			if exists {
-				updateStatus(&current, false, "NamespaceNotFound", "Target Namespace does not exist")
+				message := fmt.Sprintf("Target namespace '%s' does not exist. The NamespaceLabel CR will remain inactive until the namespace is created. Namespace creation is typically handled by platform administrators.", 
+					targetNS)
+				updateStatus(&current, false, "NamespaceNotFound", message)
 				if err := r.Status().Update(ctx, &current); err != nil {
 					l.Error(err, "failed to update status for missing namespace")
 				}
@@ -131,7 +164,7 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	desired, perKeyWinners := mergeDesiredLabels(list.Items)
+	desired, _ := mergeDesiredLabels(list.Items)
 
 	// Load what we previously applied (from annotation) to compute removals safely.
 	prevApplied := readAppliedAnnotation(&ns)
@@ -172,7 +205,9 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := writeAppliedAnnotation(ctx, r.Client, &ns, desired); err != nil {
 		l.Error(err, "failed to write applied annotation")
 		if exists {
-			updateStatus(&current, false, "AnnotationError", "Failed to update applied annotation")
+			message := fmt.Sprintf("Labels were applied to namespace '%s' but failed to update tracking annotation. This may cause issues during cleanup. The controller will retry automatically. Error: %v", 
+				targetNS, err)
+			updateStatus(&current, false, "AnnotationError", message)
 			if err := r.Status().Update(ctx, &current); err != nil {
 				l.Error(err, "failed to update status after annotation error")
 			}
@@ -182,19 +217,22 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// If the CR from this request still exists, set its status (best-effort).
 	if exists {
-		// If this CR "won" on all of its keys, mark Applied=true; else Applied=true but add message on conflicts.
-		msg := ""
-		conflicted := false
-		for k := range current.Spec.Labels {
-			if winner, ok := perKeyWinners[k]; ok && winner != current.Name {
-				conflicted = true
-			}
+		// Since we enforce singleton pattern, there should be no conflicts now
+		// But we'll keep the logic for completeness and enhanced messaging
+		labelCount := len(current.Spec.Labels)
+		appliedCount := len(desired)
+		
+		msg := fmt.Sprintf("Successfully applied %d labels to namespace '%s'. This is the only NamespaceLabel CR in this namespace (singleton pattern enforced).", 
+			labelCount, current.Namespace)
+		
+		// Additional context if there are no labels defined
+		if labelCount == 0 {
+			msg = fmt.Sprintf("NamespaceLabel CR is active but no labels are defined. Add labels to the spec to apply them to namespace '%s'.", 
+				current.Namespace)
 		}
-		if conflicted {
-			msg = "Some keys were overridden by another NamespaceLabel in this namespace (name tie-breaker applied)."
-		} else {
-			msg = "Labels merged and applied."
-		}
+		
+		l.Info("NamespaceLabel successfully processed", 
+			"namespace", current.Namespace, "labelsApplied", appliedCount, "labelsRequested", labelCount)
 		updateStatus(&current, true, "Synced", msg)
 		if err := r.Status().Update(ctx, &current); err != nil {
 			l.Error(err, "failed to update CR status")
@@ -358,6 +396,17 @@ func boolToCond(b bool) metav1.ConditionStatus {
 		return metav1.ConditionTrue
 	}
 	return metav1.ConditionFalse
+}
+
+// removeFromSlice removes a specific value from a slice and returns a new slice
+func removeFromSlice(slice []string, item string) []string {
+	var result []string
+	for _, s := range slice {
+		if s != item {
+			result = append(result, s)
+		}
+	}
+	return result
 }
 
 func (r *NamespaceLabelReconciler) SetupWithManager(mgr ctrl.Manager) error {
