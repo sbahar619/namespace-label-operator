@@ -1,0 +1,52 @@
+# Basic NamespaceLabel Usage Example
+#
+# This example demonstrates the simplest use case:
+# applying labels to a namespace without any protection.
+
+---
+# First, create a namespace (or use an existing one)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: my-application
+
+---
+# Create a NamespaceLabel resource to manage labels
+apiVersion: labels.shahaf.com/v1alpha1
+kind: NamespaceLabel
+metadata:
+  name: labels                    # Must be named "labels"
+  namespace: my-application       # Affects this namespace only
+spec:
+  labels:
+    # Application metadata
+    app: "my-application"
+    version: "1.0.0"
+    
+    # Environment classification
+    environment: "development"
+    
+    # Team ownership
+    team: "backend"
+    
+    # Cost allocation
+    cost-center: "engineering"
+    project: "web-platform"
+    
+    # Operational labels
+    monitoring: "enabled"
+    backup: "daily"
+    
+    # Managed by this operator
+    managed-by: "namespacelabel-operator"
+
+---
+# Example: Check the results
+# After applying this manifest, run:
+#
+# kubectl get namespace my-application --show-labels
+#
+# You should see all the labels applied to the namespace.
+#
+# To check the NamespaceLabel status:
+# kubectl get namespacelabel labels -n my-application -o yaml 

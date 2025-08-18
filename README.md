@@ -1,114 +1,306 @@
-# namespacelabel
-// TODO(user): Add simple overview of use/purpose
+# NamespaceLabel Operator
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+A Kubernetes operator that manages namespace labels through custom resources, providing a safe, auditable, and scalable way to apply labels to namespaces with built-in protection for critical management labels.
 
-## Getting Started
+[![Go Report Card](https://goreportcard.com/badge/github.com/sbahar619/namespace-label-operator)](https://goreportcard.com/report/github.com/sbahar619/namespace-label-operator)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
+## 🎯 Overview
+
+The NamespaceLabel operator allows you to manage namespace labels declaratively using Kubernetes custom resources. Instead of manually editing namespace manifests or using imperative kubectl commands, you can define desired labels in a `NamespaceLabel` custom resource, and the operator will ensure the namespace stays in sync.
+
+### Key Features
+
+- 🛡️ **Label Protection** - Protect critical management labels from accidental overwrites
+- 🔒 **Multi-tenant Security** - NamespaceLabel CRs can only affect their own namespace
+- 📋 **Singleton Pattern** - One `labels` CR per namespace for consistency
+- 🔄 **Declarative Management** - GitOps-friendly label management
+- 📊 **Status Reporting** - Clear status on applied vs skipped labels
+- 🧹 **Automatic Cleanup** - Safe removal of operator-managed labels
+- 🏷️ **Flexible Protection** - Configurable protection patterns and modes
+
+## 🚀 Quick Start
 
 ### Prerequisites
-- go version v1.21.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+- Kubernetes 1.21+
+- kubectl configured to access your cluster
+- Cluster admin permissions for installation
 
-```sh
-make docker-build docker-push IMG=<some-registry>/namespacelabel:tag
+### Installation
+
+1. **Install the operator:**
+   ```bash
+   kubectl apply -f https://raw.githubusercontent.com/sbahar619/namespace-label-operator/main/dist/install.yaml
+   ```
+
+2. **Verify installation:**
+   ```bash
+   kubectl get pods -n namespacelabel-system
+   kubectl get crd namespacelabels.labels.shahaf.com
+   ```
+
+3. **Create your first NamespaceLabel:**
+   ```bash
+   kubectl apply -f - <<EOF
+   apiVersion: labels.shahaf.com/v1alpha1
+   kind: NamespaceLabel
+   metadata:
+     name: labels
+     namespace: default
+   spec:
+     labels:
+       environment: "development"
+       team: "platform"
+       managed-by: "namespacelabel-operator"
+   EOF
+   ```
+
+4. **Check the results:**
+   ```bash
+   kubectl get namespace default --show-labels
+   kubectl get namespacelabel labels -n default -o yaml
+   ```
+
+## 📖 Usage Examples
+
+### Basic Label Management
+
+```yaml
+apiVersion: labels.shahaf.com/v1alpha1
+kind: NamespaceLabel
+metadata:
+  name: labels                    # Must be named "labels"
+  namespace: my-application       # Affects this namespace only
+spec:
+  labels:
+    environment: "production"
+    team: "backend"
+    cost-center: "engineering"
+    monitoring: "enabled"
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+### With Label Protection
 
-**Install the CRDs into the cluster:**
-
-```sh
-make install
+```yaml
+apiVersion: labels.shahaf.com/v1alpha1
+kind: NamespaceLabel
+metadata:
+  name: labels
+  namespace: production-app
+spec:
+  labels:
+    environment: "production"
+    tier: "critical"
+    backup-policy: "daily"
+  
+  # Protect important management labels
+  protectedLabelPatterns:
+    - "kubernetes.io/*"           # Protect all kubernetes.io labels
+    - "*.k8s.io/*"               # Protect k8s ecosystem labels
+    - "istio.io/*"               # Protect service mesh labels
+    - "pod-security.kubernetes.io/*"  # Protect pod security labels
+  
+  protectionMode: warn            # skip, warn, or fail
+  ignoreExistingProtectedLabels: false
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+### GitOps Integration
 
-```sh
-make deploy IMG=<some-registry>/namespacelabel:tag
+```yaml
+# In your GitOps repository
+apiVersion: labels.shahaf.com/v1alpha1
+kind: NamespaceLabel
+metadata:
+  name: labels
+  namespace: team-backend
+spec:
+  labels:
+    environment: "${ENVIRONMENT}"      # Substituted by ArgoCD/Flux
+    team: "backend"
+    git-commit: "${COMMIT_SHA}"
+  protectedLabelPatterns:
+    - "kubernetes.io/*"
+  protectionMode: skip
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+## 🏗️ Architecture
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
-
-```sh
-kubectl apply -k config/samples/
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│  NamespaceLabel │    │   Controller     │    │   Namespace     │
+│       CR        │───▶│   Reconciler     │───▶│    Labels       │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                │
+                                ▼
+                       ┌──────────────────┐
+                       │   Protection     │
+                       │     Logic        │
+                       └──────────────────┘
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+The operator watches for `NamespaceLabel` custom resources and applies the specified labels to the corresponding namespace. It includes sophisticated protection logic to prevent overwriting critical management labels.
 
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
+## 🛡️ Label Protection
 
-```sh
-kubectl delete -k config/samples/
+### Protection Patterns
+
+Use glob patterns to protect important labels:
+
+| Pattern | Protects | Example Labels |
+|---------|----------|----------------|
+| `kubernetes.io/*` | Core Kubernetes labels | `kubernetes.io/managed-by` |
+| `*.k8s.io/*` | K8s ecosystem | `networking.k8s.io/ingress-class` |
+| `istio.io/*` | Service mesh | `istio.io/rev` |
+| `pod-security.kubernetes.io/*` | Pod security | `pod-security.kubernetes.io/enforce` |
+
+### Protection Modes
+
+| Mode | Behavior | Use Case |
+|------|----------|----------|
+| `skip` | Silently skip protected labels | Default, non-disruptive |
+| `warn` | Skip with warnings in logs/status | Compliance monitoring |
+| `fail` | Fail reconciliation completely | Strict enforcement |
+
+### Example Protection Configuration
+
+```yaml
+spec:
+  protectedLabelPatterns:
+    - "kubernetes.io/*"
+    - "*.k8s.io/*"
+    - "compliance.*"
+  protectionMode: warn
+  ignoreExistingProtectedLabels: false
 ```
 
-**Delete the APIs(CRDs) from the cluster:**
+## 🔐 Security & RBAC
 
-```sh
-make uninstall
+### Tenant Access
+
+The operator provides ClusterRoles for tenant access:
+
+- **`namespacelabel-editor-role`** - Full CRUD access to NamespaceLabel CRDs
+- **`namespacelabel-viewer-role`** - Read-only access
+
+#### Grant Access to Tenants
+
+```bash
+# Grant editor access to a team
+kubectl create rolebinding namespacelabel-access \
+  --clusterrole=namespacelabel-editor-role \
+  --group=backend-team \
+  --namespace=team-backend
+
+# Grant read-only access
+kubectl create rolebinding namespacelabel-viewer \
+  --clusterrole=namespacelabel-viewer-role \
+  --group=monitoring-team \
+  --namespace=any-namespace
 ```
 
-**UnDeploy the controller from the cluster:**
+### Security Features
 
-```sh
-make undeploy
+- **Namespace Isolation**: CRs can only affect their own namespace
+- **Singleton Pattern**: Only one `labels` CR allowed per namespace
+- **Protection Logic**: Prevents overwriting critical labels
+- **Audit Trail**: All changes logged and tracked
+
+## 📊 Monitoring & Observability
+
+### Status Fields
+
+```yaml
+status:
+  applied: true
+  message: "Applied 3 labels to namespace 'production', skipped 1 protected label"
+  protectedLabelsSkipped: ["kubernetes.io/managed-by"]
+  labelsApplied: ["environment", "team", "tier"]
+  conditions:
+  - type: Ready
+    status: "True"
+    reason: Synced
+    message: "Successfully applied labels"
 ```
 
-## Project Distribution
+### Metrics & Logging
 
-Following are the steps to build the installer and distribute this project to users.
+```bash
+# View controller logs
+kubectl logs -n namespacelabel-system deployment/namespacelabel-controller-manager
 
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/namespacelabel:tag
+# Check operator status
+kubectl get pods -n namespacelabel-system
+kubectl get namespacelabel -A
 ```
 
-NOTE: The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without
-its dependencies.
+## 🛠️ Development
 
-2. Using the installer
+### Building from Source
 
-Users can just run kubectl apply -f <URL for YAML BUNDLE> to install the project, i.e.:
+```bash
+# Clone repository
+git clone https://github.com/sbahar619/namespace-label-operator
+cd namespace-label-operator
 
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/namespacelabel/<tag or branch>/dist/install.yaml
+# Run tests
+make test
+
+# Build and run locally
+make run
+
+# Build container image
+make docker-build IMG=my-registry/namespacelabel:latest
+make docker-push IMG=my-registry/namespacelabel:latest
 ```
 
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
+### Running Tests
 
-**NOTE:** Run `make help` for more information on all potential `make` targets
+```bash
+# Unit tests
+make test
 
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+# E2E tests (requires Kind cluster)
+kind create cluster --name namespacelabel-test
+make test-e2e
+```
 
-## License
+## 📚 Documentation
 
-Copyright 2025.
+- [API Reference](docs/API.md) - Complete API documentation
+- [Architecture Guide](docs/ARCHITECTURE.md) - Detailed architecture overview
+- [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
+- [Contributing](docs/CONTRIBUTING.md) - Development guidelines
+- [Examples](examples/) - Usage examples and tutorials
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+## 🤝 Contributing
 
-    http://www.apache.org/licenses/LICENSE-2.0
+Contributions are welcome! Please see our [Contributing Guide](docs/CONTRIBUTING.md) for details.
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+### Development Setup
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Ensure all tests pass
+6. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+## 🆘 Support
+
+- **Issues**: [GitHub Issues](https://github.com/sbahar619/namespace-label-operator/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/sbahar619/namespace-label-operator/discussions)
+- **Documentation**: [docs/](docs/)
+
+## 🏷️ Versioning
+
+We use [Semantic Versioning](https://semver.org/). For available versions, see the [tags on this repository](https://github.com/sbahar619/namespace-label-operator/tags).
+
+## ⭐ Star History
+
+If you find this project useful, please consider giving it a star! ⭐
 

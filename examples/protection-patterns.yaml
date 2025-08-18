@@ -1,0 +1,166 @@
+# Protection Patterns Example
+#
+# This example demonstrates how to protect important management labels
+# from being overwritten by the NamespaceLabel operator.
+
+---
+# Create a namespace with some existing management labels
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production-app
+  labels:
+    # These labels were set by the platform team
+    kubernetes.io/managed-by: "platform-team"
+    pod-security.kubernetes.io/enforce: "restricted"
+    istio.io/rev: "stable"
+    compliance.company.com/level: "high"
+
+---
+# NamespaceLabel with protection - SKIP mode (default)
+apiVersion: labels.shahaf.com/v1alpha1
+kind: NamespaceLabel
+metadata:
+  name: labels
+  namespace: production-app
+spec:
+  labels:
+    # Application labels (will be applied)
+    app: "production-app"
+    version: "2.1.0"
+    environment: "production"
+    team: "backend"
+    
+    # These would conflict with existing labels and will be skipped
+    kubernetes.io/managed-by: "namespacelabel-operator"  # Protected by pattern
+    pod-security.kubernetes.io/enforce: "baseline"       # Protected by pattern
+    compliance.company.com/level: "medium"               # Protected by pattern
+  
+  # Protection configuration
+  protectedLabelPatterns:
+    - "kubernetes.io/*"              # Protect all kubernetes.io labels
+    - "*.k8s.io/*"                  # Protect all k8s.io domain labels
+    - "pod-security.kubernetes.io/*" # Protect pod security labels
+    - "istio.io/*"                  # Protect service mesh labels
+    - "compliance.company.com/*"     # Protect compliance labels
+  
+  protectionMode: skip              # Silently skip protected labels
+  ignoreExistingProtectedLabels: false
+
+---
+# Alternative: NamespaceLabel with WARN mode
+apiVersion: labels.shahaf.com/v1alpha1
+kind: NamespaceLabel
+metadata:
+  name: labels
+  namespace: staging-app
+spec:
+  labels:
+    app: "staging-app"
+    environment: "staging"
+    team: "backend"
+    
+    # This will be skipped with warnings logged
+    kubernetes.io/managed-by: "staging-operator"
+  
+  protectedLabelPatterns:
+    - "kubernetes.io/*"
+  
+  protectionMode: warn              # Skip but log warnings and update status
+
+---
+# Create staging namespace for the warn example
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging-app
+  labels:
+    kubernetes.io/managed-by: "platform-team"
+
+---
+# Alternative: NamespaceLabel with FAIL mode (strict enforcement)
+apiVersion: labels.shahaf.com/v1alpha1
+kind: NamespaceLabel
+metadata:
+  name: labels
+  namespace: critical-system
+spec:
+  labels:
+    app: "critical-system"
+    environment: "production"
+    security-zone: "restricted"
+    
+    # This will cause the entire reconciliation to fail
+    # kubernetes.io/managed-by: "system-operator"  # Uncomment to test failure
+  
+  protectedLabelPatterns:
+    - "kubernetes.io/*"
+    - "*.k8s.io/*"
+    - "pod-security.kubernetes.io/*"
+    - "security.*"                  # Protect any security-related labels
+  
+  protectionMode: fail              # Fail reconciliation if conflicts detected
+  ignoreExistingProtectedLabels: false
+
+---
+# Create critical namespace for the fail example
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: critical-system
+  labels:
+    kubernetes.io/managed-by: "security-team"
+    security.company.com/zone: "restricted"
+
+---
+# Example: Allow operator to manage previously applied protected labels
+apiVersion: labels.shahaf.com/v1alpha1
+kind: NamespaceLabel
+metadata:
+  name: labels
+  namespace: managed-system
+spec:
+  labels:
+    app: "managed-system"
+    environment: "production"
+    
+    # This protected label will be allowed because ignoreExistingProtectedLabels=true
+    # and the operator can manage labels it previously applied
+    kubernetes.io/managed-by: "namespacelabel-operator"
+  
+  protectedLabelPatterns:
+    - "kubernetes.io/*"
+  
+  protectionMode: skip
+  ignoreExistingProtectedLabels: true    # Allow managing our own protected labels
+
+---
+# Create managed namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: managed-system
+
+---
+# Testing Instructions:
+#
+# 1. Apply this manifest:
+#    kubectl apply -f protection-patterns.yaml
+#
+# 2. Check the results:
+#    kubectl get namespace production-app --show-labels
+#    kubectl get namespace staging-app --show-labels
+#    kubectl get namespace critical-system --show-labels
+#
+# 3. Check NamespaceLabel status to see protection information:
+#    kubectl get namespacelabel labels -n production-app -o yaml
+#    kubectl get namespacelabel labels -n staging-app -o yaml
+#    kubectl get namespacelabel labels -n critical-system -o yaml
+#
+# 4. Look for protection events in the status:
+#    - protectedLabelsSkipped: Lists skipped labels
+#    - labelsApplied: Lists successfully applied labels
+#    - message: Human-readable summary
+#
+# 5. Check operator logs for warnings (in warn mode):
+#    kubectl logs -n namespacelabel-system deployment/namespacelabel-controller-manager | grep "Label protection warning" 
