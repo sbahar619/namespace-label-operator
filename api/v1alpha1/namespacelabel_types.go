@@ -22,19 +22,18 @@ import (
 
 // NamespaceLabelSpec defines the desired state of NamespaceLabel
 type NamespaceLabelSpec struct {
-    // Labels is a map of key-value pairs to apply to the namespace where this CR is created.
-    // The target namespace is always the same as the CR's metadata.namespace for security.
-    Labels map[string]string `json:"labels,omitempty"`
+	// Labels is a map of key-value pairs to apply to the namespace where this CR is created.
+	// The target namespace is always the same as the CR's metadata.namespace for security.
+	Labels map[string]string `json:"labels,omitempty"`
 }
-
 
 // NamespaceLabelStatus defines the observed state of NamespaceLabel
 type NamespaceLabelStatus struct {
-    // Applied indicates whether the labels were successfully applied
-    Applied bool `json:"applied,omitempty"`
+	// Applied indicates whether the labels were successfully applied
+	Applied bool `json:"applied,omitempty"`
 
-    // Message gives details about the last reconcile attempt
-    Message string `json:"message,omitempty"`
+	// Message gives details about the last reconcile attempt
+	Message string `json:"message,omitempty"`
 
 	// Conditions represent the latest available observations of the resource’s state
 	Conditions []metav1.Condition `json:"conditions,omitempty"`

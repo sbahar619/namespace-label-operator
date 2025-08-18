@@ -18,67 +18,292 @@ package controller
 
 import (
 	"context"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	labelsv1alpha1 "github.com/sbahar619/namespace-label-operator/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 )
 
-var _ = Describe("NamespaceLabel Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+func TestControllerUnit(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Controller Unit Tests")
+}
 
-		ctx := context.Background()
+var _ = Describe("NamespaceLabel Controller Unit Tests", func() {
+	var (
+		reconciler *NamespaceLabelReconciler
+		ctx        context.Context
+		fakeClient client.Client
+		scheme     *runtime.Scheme
+	)
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme = runtime.NewScheme()
+		Expect(labelsv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+
+		fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+		reconciler = &NamespaceLabelReconciler{
+			Client: fakeClient,
+			Scheme: scheme,
 		}
-		namespacelabel := &labelsv1alpha1.NamespaceLabel{}
+	})
 
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind NamespaceLabel")
-			err := k8sClient.Get(ctx, typeNamespacedName, namespacelabel)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &labelsv1alpha1.NamespaceLabel{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
+	Context("Label Merging Logic", func() {
+		It("should merge labels from multiple CRs correctly", func() {
+			crs := []labelsv1alpha1.NamespaceLabel{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "cr1"},
+					Spec: labelsv1alpha1.NamespaceLabelSpec{
+						Labels: map[string]string{
+							"app":         "web",
+							"environment": "prod",
+						},
 					},
-					// TODO(user): Specify other spec details if needed.
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "cr2"},
+					Spec: labelsv1alpha1.NamespaceLabelSpec{
+						Labels: map[string]string{
+							"team":    "backend",
+							"version": "v1.0",
+						},
+					},
+				},
+			}
+
+			mergedLabels, conflicts := mergeDesiredLabels(crs)
+
+			Expect(mergedLabels).To(HaveKeyWithValue("app", "web"))
+			Expect(mergedLabels).To(HaveKeyWithValue("environment", "prod"))
+			Expect(mergedLabels).To(HaveKeyWithValue("team", "backend"))
+			Expect(mergedLabels).To(HaveKeyWithValue("version", "v1.0"))
+			Expect(conflicts).To(BeEmpty())
+		})
+
+		It("should handle label conflicts with name-based tie-breaking", func() {
+			crs := []labelsv1alpha1.NamespaceLabel{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "zz-last"},
+					Spec: labelsv1alpha1.NamespaceLabelSpec{
+						Labels: map[string]string{
+							"environment": "staging",
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "aa-first"},
+					Spec: labelsv1alpha1.NamespaceLabelSpec{
+						Labels: map[string]string{
+							"environment": "production",
+						},
+					},
+				},
+			}
+
+			mergedLabels, conflicts := mergeDesiredLabels(crs)
+
+			// "aa-first" should win due to alphabetical ordering
+			Expect(mergedLabels).To(HaveKeyWithValue("environment", "production"))
+			Expect(conflicts).To(HaveKey("environment"))
+			Expect(conflicts["environment"]).To(Equal("aa-first"))
+		})
+
+		It("should handle empty label specs", func() {
+			crs := []labelsv1alpha1.NamespaceLabel{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "empty"},
+					Spec: labelsv1alpha1.NamespaceLabelSpec{
+						Labels: map[string]string{},
+					},
+				},
+			}
+
+			mergedLabels, conflicts := mergeDesiredLabels(crs)
+
+			Expect(mergedLabels).To(BeEmpty())
+			Expect(conflicts).To(BeEmpty())
+		})
+	})
+
+	Context("Singleton Pattern Validation", func() {
+		It("should validate CR name is 'labels'", func() {
+			By("Creating a CR with invalid name")
+			cr := &labelsv1alpha1.NamespaceLabel{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "invalid-name",
+					Namespace: "test-ns",
+				},
+				Spec: labelsv1alpha1.NamespaceLabelSpec{
+					Labels: map[string]string{"test": "value"},
+				},
+			}
+
+			// Create the CR in fake client
+			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
+
+			// Create a namespace for the test
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
+			}
+			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
+
+			// Run reconcile
+			req := ctrl.Request{NamespacedName: types.NamespacedName{
+				Name:      "invalid-name",
+				Namespace: "test-ns",
+			}}
+
+			_, err := reconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Check that CR status indicates error
+			updated := &labelsv1alpha1.NamespaceLabel{}
+			Expect(fakeClient.Get(ctx, req.NamespacedName, updated)).To(Succeed())
+
+			foundError := false
+			for _, condition := range updated.Status.Conditions {
+				if condition.Type == "Ready" && condition.Status == metav1.ConditionFalse {
+					foundError = true
+					break
 				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
+			Expect(foundError).To(BeTrue())
 		})
 
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &labelsv1alpha1.NamespaceLabel{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance NamespaceLabel")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &NamespaceLabelReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+		It("should allow CR named 'labels'", func() {
+			By("Creating a CR with valid name")
+			cr := &labelsv1alpha1.NamespaceLabel{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "labels",
+					Namespace: "test-ns",
+				},
+				Spec: labelsv1alpha1.NamespaceLabelSpec{
+					Labels: map[string]string{"test": "value"},
+				},
 			}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
+			// Create the CR in fake client
+			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
+
+			// Create a namespace for the test
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
+			}
+			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
+
+			// Run reconcile
+			req := ctrl.Request{NamespacedName: types.NamespacedName{
+				Name:      "labels",
+				Namespace: "test-ns",
+			}}
+
+			_, err := reconciler.Reconcile(ctx, req)
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			// Check that CR status indicates success
+			updated := &labelsv1alpha1.NamespaceLabel{}
+			Expect(fakeClient.Get(ctx, req.NamespacedName, updated)).To(Succeed())
+
+			foundSuccess := false
+			for _, condition := range updated.Status.Conditions {
+				if condition.Type == "Ready" && condition.Status == metav1.ConditionTrue {
+					foundSuccess = true
+					break
+				}
+			}
+			Expect(foundSuccess).To(BeTrue())
+		})
+	})
+
+	Context("Namespace Label Application", func() {
+		It("should apply labels to target namespace", func() {
+			By("Creating a valid CR")
+			cr := &labelsv1alpha1.NamespaceLabel{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "labels",
+					Namespace: "test-ns",
+				},
+				Spec: labelsv1alpha1.NamespaceLabelSpec{
+					Labels: map[string]string{
+						"environment": "production",
+						"team":        "platform",
+					},
+				},
+			}
+			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
+
+			By("Creating target namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
+			}
+			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
+
+			By("Running reconcile")
+			req := ctrl.Request{NamespacedName: types.NamespacedName{
+				Name:      "labels",
+				Namespace: "test-ns",
+			}}
+
+			_, err := reconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying labels were applied")
+			updatedNS := &corev1.Namespace{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-ns"}, updatedNS)).To(Succeed())
+
+			Expect(updatedNS.Labels).To(HaveKeyWithValue("environment", "production"))
+			Expect(updatedNS.Labels).To(HaveKeyWithValue("team", "platform"))
+		})
+	})
+
+	Context("Error Handling", func() {
+		It("should handle missing namespace gracefully", func() {
+			By("Creating a CR for non-existent namespace")
+			cr := &labelsv1alpha1.NamespaceLabel{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "labels",
+					Namespace: "missing-ns",
+				},
+				Spec: labelsv1alpha1.NamespaceLabelSpec{
+					Labels: map[string]string{"test": "value"},
+				},
+			}
+			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
+
+			By("Running reconcile")
+			req := ctrl.Request{NamespacedName: types.NamespacedName{
+				Name:      "labels",
+				Namespace: "missing-ns",
+			}}
+
+			result, err := reconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+
+			By("Verifying error status is set")
+			updated := &labelsv1alpha1.NamespaceLabel{}
+			Expect(fakeClient.Get(ctx, req.NamespacedName, updated)).To(Succeed())
+
+			foundError := false
+			for _, condition := range updated.Status.Conditions {
+				if condition.Type == "Ready" && condition.Status == metav1.ConditionFalse {
+					foundError = true
+					break
+				}
+			}
+			Expect(foundError).To(BeTrue())
 		})
 	})
 })
