@@ -19,13 +19,14 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"testing"
+	"math/rand"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,12 +35,7 @@ import (
 	"github.com/sbahar619/namespace-label-operator/test/utils"
 )
 
-func TestNamespaceLabelE2E(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Simple E2E Suite")
-}
-
-var _ = Describe("NamespaceLabel Simple E2E Tests", func() {
+var _ = Describe("NamespaceLabel E2E Tests", func() {
 	var (
 		k8sClient client.Client
 		ctx       context.Context
@@ -48,7 +44,8 @@ var _ = Describe("NamespaceLabel Simple E2E Tests", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		testNS = fmt.Sprintf("e2e-test-%d", time.Now().Unix())
+		// Use nanoseconds and random number to avoid collisions
+		testNS = fmt.Sprintf("e2e-test-%d-%d", time.Now().UnixNano(), rand.Int31())
 
 		By("Setting up Kubernetes client")
 		var err error
@@ -71,7 +68,18 @@ var _ = Describe("NamespaceLabel Simple E2E Tests", func() {
 				Name: testNS,
 			},
 		}
-		k8sClient.Delete(ctx, ns)
+		// Delete the namespace and wait for it to be fully removed
+		err := k8sClient.Delete(ctx, ns)
+		if err != nil && !errors.IsNotFound(err) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+		
+		// Wait for namespace to be fully deleted
+		Eventually(func() bool {
+			checkNS := &corev1.Namespace{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, checkNS)
+			return errors.IsNotFound(err)
+		}, time.Minute, time.Second).Should(BeTrue())
 	})
 
 	Context("Basic NamespaceLabel Operations", func() {
@@ -205,7 +213,7 @@ var _ = Describe("NamespaceLabel Simple E2E Tests", func() {
 					Name:      "labels",
 					Namespace: testNS,
 				}, found)
-				return err != nil
+				return errors.IsNotFound(err)
 			}, time.Minute, time.Second).Should(BeTrue())
 		})
 	})
