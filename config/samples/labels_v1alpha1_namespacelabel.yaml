@@ -4,10 +4,11 @@ metadata:
   labels:
     app.kubernetes.io/name: namespacelabel
     app.kubernetes.io/managed-by: kustomize
-  name: namespacelabel-sample
+  name: labels  # Fixed name for singleton pattern - only "labels" is allowed
   namespace: default
 spec:
   # Labels are applied to the same namespace as this CR (default) for security
+  # Only one NamespaceLabel CR named "labels" is allowed per namespace
   labels:
     environment: "development"
     team: "platform"

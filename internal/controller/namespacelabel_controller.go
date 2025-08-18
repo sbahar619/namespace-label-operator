@@ -26,8 +26,9 @@ import (
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;update;patch
 
 const (
-	appliedAnnoKey = "labels.shahaf.com/applied" // JSON of map[string]string
-	FinalizerName  = "labels.shahaf.com/finalizer"
+	appliedAnnoKey   = "labels.shahaf.com/applied" // JSON of map[string]string
+	FinalizerName    = "labels.shahaf.com/finalizer"
+	StandardCRName   = "labels" // Standard name for NamespaceLabel CRs (singleton pattern)
 )
 
 // NamespaceLabelReconciler reconciles a NamespaceLabel object
@@ -45,6 +46,45 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	exists := err == nil
 	if err != nil && !apierrors.IsNotFound(err) {
 		return ctrl.Result{}, err
+	}
+
+	// Enforce singleton pattern: only allow CR named "labels"
+	if exists && current.Name != StandardCRName {
+		l.Error(nil, "NamespaceLabel CR must be named 'labels' for consistency across the platform", 
+			"namespace", current.Namespace, "actualName", current.Name, "requiredName", StandardCRName)
+		updateStatus(&current, false, "InvalidName", 
+			fmt.Sprintf("NamespaceLabel CR must be named '%s' for platform consistency", StandardCRName))
+		if err := r.Status().Update(ctx, &current); err != nil {
+			l.Error(err, "failed to update status for invalid name")
+		}
+		return ctrl.Result{}, nil // Don't requeue - user needs to fix the name
+	}
+
+	// Enforce singleton pattern: ensure only one NamespaceLabel per namespace
+	if exists {
+		var allCRs labelsv1alpha1.NamespaceLabelList
+		if err := r.List(ctx, &allCRs, client.InNamespace(current.Namespace)); err != nil {
+			return ctrl.Result{}, err
+		}
+		
+		// Check for multiple CRs (excluding the current one if it's being deleted)
+		activeCRs := 0
+		for _, cr := range allCRs.Items {
+			if cr.DeletionTimestamp == nil {
+				activeCRs++
+			}
+		}
+		
+		if activeCRs > 1 {
+			l.Error(nil, "Multiple NamespaceLabel CRs found in namespace - only one allowed", 
+				"namespace", current.Namespace, "count", activeCRs)
+			updateStatus(&current, false, "MultipleInstances", 
+				"Only one NamespaceLabel CR is allowed per namespace. Please delete other instances.")
+			if err := r.Status().Update(ctx, &current); err != nil {
+				l.Error(err, "failed to update status for multiple instances")
+			}
+			return ctrl.Result{}, nil // Don't requeue - user needs to fix by deleting others
+		}
 	}
 
 	// Handle deletion
