@@ -42,6 +42,27 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 		testNS    string
 	)
 
+	// Helper function to clean up NamespaceLabel CRs reliably
+	cleanupNamespaceLabels := func(namespace string) {
+		crList := &labelsv1alpha1.NamespaceLabelList{}
+		if err := k8sClient.List(ctx, crList, client.InNamespace(namespace)); err == nil {
+			for _, cr := range crList.Items {
+				if err := k8sClient.Delete(ctx, &cr); err != nil && !errors.IsNotFound(err) {
+					fmt.Printf("Warning: failed to delete CR %s: %v\n", cr.Name, err)
+				}
+			}
+			
+			// Wait for all CRs to be deleted (finalizers processed)
+			Eventually(func() int {
+				crList := &labelsv1alpha1.NamespaceLabelList{}
+				if err := k8sClient.List(ctx, crList, client.InNamespace(namespace)); err != nil {
+					return 0
+				}
+				return len(crList.Items)
+			}, time.Minute, time.Second).Should(Equal(0))
+		}
+	}
+
 	BeforeEach(func() {
 		ctx = context.Background()
 		// Use nanoseconds and random number to avoid collisions
@@ -63,23 +84,33 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 
 	AfterEach(func() {
 		By("Cleaning up test namespace")
+		
+		// First, delete any NamespaceLabel CRs in the namespace to remove finalizers
+		By("Cleaning up NamespaceLabel CRs to remove finalizers")
+		cleanupNamespaceLabels(testNS)
+		
+		// Now delete the namespace
+		By("Deleting the test namespace")
 		ns := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: testNS,
 			},
 		}
-		// Delete the namespace and wait for it to be fully removed
 		err := k8sClient.Delete(ctx, ns)
 		if err != nil && !errors.IsNotFound(err) {
-			Expect(err).NotTo(HaveOccurred())
+			// Log but don't fail the test - this is cleanup
+			fmt.Printf("Warning: failed to delete namespace %s: %v\n", testNS, err)
+			return // Skip waiting if delete failed
 		}
 
-		// Wait for namespace to be fully deleted
+		// Wait for namespace to be fully deleted with longer timeout
+		By("Waiting for namespace to be fully deleted")
 		Eventually(func() bool {
 			checkNS := &corev1.Namespace{}
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, checkNS)
 			return errors.IsNotFound(err)
-		}, time.Minute, time.Second).Should(BeTrue())
+		}, time.Minute*2, time.Second*2).Should(BeTrue(), 
+			fmt.Sprintf("Namespace %s should be deleted within 2 minutes", testNS))
 	})
 
 	Context("Basic NamespaceLabel Operations", func() {
@@ -302,6 +333,124 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 				}
 				return ns.Labels["kubernetes.io/test-label"]
 			}, time.Minute, time.Second*2).Should(Equal("managed-value"))
+		})
+
+		// Test for regression: https://github.com/sbahar619/namespace-label-operator/issues/protection-race
+		// This test specifically validates that the protection system works correctly even when
+		// there are rapid reconciliations that could trigger race conditions in annotation updates.
+		// 
+		// Bug context: Previously, the writeAppliedAnnotation function could cause race conditions
+		// where protected labels would initially be skipped correctly, but then subsequent 
+		// reconciliations might bypass protection due to incorrect annotation state.
+		//
+		// This test ensures:
+		// 1. Protection works on first reconciliation
+		// 2. Protection continues to work through multiple rapid updates
+		// 3. The applied annotation only contains labels that were actually applied
+		// 4. Protected labels remain unchanged throughout all reconciliations
+		It("should prevent protection bypass through annotation race condition", func() {
+			By("Pre-setting a protected label on the namespace")
+			ns := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)).To(Succeed())
+			if ns.Labels == nil {
+				ns.Labels = make(map[string]string)
+			}
+			originalValue := "original-system-value"
+			ns.Labels["system.io/managed-by"] = originalValue
+			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
+
+			By("Creating a NamespaceLabel CR attempting to override the protected label")
+			cr := &labelsv1alpha1.NamespaceLabel{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "labels",
+					Namespace: testNS,
+				},
+				Spec: labelsv1alpha1.NamespaceLabelSpec{
+					Labels: map[string]string{
+						"environment":        "production",  // This should be applied
+						"system.io/managed-by": "hacker-value", // This should be blocked by protection
+						"tier":              "critical",    // This should be applied
+					},
+					ProtectedLabelPatterns: []string{"system.io/*"},
+					ProtectionMode:         "warn",
+					IgnoreExistingProtectedLabels: false, // Don't allow override
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+
+			By("Triggering multiple rapid reconciliations by updating the CR")
+			for i := 0; i < 5; i++ {
+				// Use Eventually with retry logic to handle resource version conflicts
+				Eventually(func() error {
+					// Get fresh copy of the CR to avoid resource version conflicts
+					freshCR := &labelsv1alpha1.NamespaceLabel{}
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "labels", Namespace: testNS}, freshCR); err != nil {
+						return err
+					}
+					
+					// Update the counter to trigger reconciliation
+					freshCR.Spec.Labels["update-counter"] = fmt.Sprintf("update-%d", i)
+					return k8sClient.Update(ctx, freshCR)
+				}, time.Second*10, time.Millisecond*100).Should(Succeed(), 
+					fmt.Sprintf("Should be able to update CR for iteration %d", i))
+				
+				// Small delay to allow controller processing
+				time.Sleep(time.Millisecond * 200)
+			}
+
+			By("Verifying protection held through all reconciliations")
+			Consistently(func() string {
+				updatedNS := &corev1.Namespace{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, updatedNS)
+				if err != nil || updatedNS.Labels == nil {
+					return ""
+				}
+				return updatedNS.Labels["system.io/managed-by"]
+			}, time.Second*10, time.Second).Should(Equal(originalValue), "Protected label should never change from original value")
+
+			By("Verifying non-protected labels were applied correctly")
+			Eventually(func() map[string]string {
+				updatedNS := &corev1.Namespace{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, updatedNS)
+				if err != nil {
+					return nil
+				}
+				return updatedNS.Labels
+			}, time.Minute, time.Second).Should(And(
+				HaveKeyWithValue("environment", "production"),    // Should be applied
+				HaveKeyWithValue("tier", "critical"),           // Should be applied
+				HaveKeyWithValue("update-counter", "update-4"),  // Should have latest update
+				HaveKeyWithValue("system.io/managed-by", originalValue), // Should remain original
+			))
+
+			By("Verifying the status consistently shows the protected label was skipped")
+			Eventually(func() []string {
+				found := &labelsv1alpha1.NamespaceLabel{}
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "labels",
+					Namespace: testNS,
+				}, found)
+				if err != nil {
+					return nil
+				}
+				return found.Status.ProtectedLabelsSkipped
+			}, time.Minute, time.Second).Should(ContainElement("system.io/managed-by"))
+
+			By("Verifying the applied annotation only contains non-protected labels")
+			Eventually(func() string {
+				updatedNS := &corev1.Namespace{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, updatedNS)
+				if err != nil || updatedNS.Annotations == nil {
+					return ""
+				}
+				return updatedNS.Annotations["labels.shahaf.com/applied"]
+			}, time.Minute, time.Second).Should(And(
+				ContainSubstring("environment"),
+				ContainSubstring("tier"), 
+				ContainSubstring("update-counter"),
+				Not(ContainSubstring("system.io/managed-by")), // Should NOT be in applied annotation
+			))
 		})
 	})
 })

@@ -51,12 +51,20 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet envtest ## Run tests.
+test: manifests generate fmt vet envtest ## Run unit tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 .PHONY: test-e2e
-test-e2e: ## Run the e2e tests against the current cluster.
-	go test ./test/e2e/ -v -ginkgo.v -timeout 15m
+test-e2e: ginkgo ## Run E2E tests in parallel (8 workers) using managed ginkgo.
+	$(GINKGO) -v --procs=8 --compilers=8 --fail-on-pending --show-node-events --timeout=15m ./test/e2e/
+
+.PHONY: test-e2e-sequential
+test-e2e-sequential: ## Run E2E tests sequentially (for debugging).
+	go test ./test/e2e/ -v -timeout 15m --ginkgo.v --ginkgo.fail-on-pending
+
+.PHONY: test-e2e-system
+test-e2e-system: ## Run E2E tests in parallel using system ginkgo (faster if available).
+	ginkgo -v --procs=8 --compilers=8 --fail-on-pending --show-node-events --timeout=15m ./test/e2e/
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter.
@@ -193,12 +201,14 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize-$(KUSTOMIZE_VERSION)
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
 ENVTEST ?= $(LOCALBIN)/setup-envtest-$(ENVTEST_VERSION)
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
+GINKGO ?= $(LOCALBIN)/ginkgo-$(GINKGO_VERSION)
 
 # Tool Versions
 KUSTOMIZE_VERSION ?= v5.3.0
 CONTROLLER_TOOLS_VERSION ?= v0.14.0
 ENVTEST_VERSION ?= release-0.17
 GOLANGCI_LINT_VERSION ?= v1.57.2
+GINKGO_VERSION ?= v2.15.0
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -219,6 +229,11 @@ $(ENVTEST): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,${GOLANGCI_LINT_VERSION})
+
+.PHONY: ginkgo
+ginkgo: $(GINKGO) ## Download ginkgo locally if necessary.
+$(GINKGO): $(LOCALBIN)
+	$(call go-install-tool,$(GINKGO),github.com/onsi/ginkgo/v2/ginkgo,$(GINKGO_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary (ideally with version)
