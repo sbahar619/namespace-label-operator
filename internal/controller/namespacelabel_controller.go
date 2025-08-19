@@ -50,10 +50,17 @@ type ProtectionResult struct {
 // isLabelProtected checks if a label key matches any of the protection patterns
 func isLabelProtected(labelKey string, protectionPatterns []string) bool {
 	for _, pattern := range protectionPatterns {
+		// Skip empty patterns
+		if pattern == "" {
+			continue
+		}
+
 		// Use filepath.Match for glob pattern matching
 		if matched, err := filepath.Match(pattern, labelKey); err == nil && matched {
 			return true
 		}
+		// If there's an error in pattern matching, log it but continue
+		// This prevents malformed patterns from breaking protection
 	}
 	return false
 }
@@ -88,9 +95,9 @@ func applyProtectionLogic(
 
 			// If the label exists with a different value, apply protection
 			if hasExisting && existingValue != value {
-				msg := fmt.Sprintf("Label '%s' is protected by pattern and has existing value '%s' (attempting to set '%s')", 
+				msg := fmt.Sprintf("Label '%s' is protected by pattern and has existing value '%s' (attempting to set '%s')",
 					key, existingValue, value)
-				
+
 				switch protectionMode {
 				case labelsv1alpha1.ProtectionModeFail:
 					result.ShouldFail = true
@@ -104,6 +111,13 @@ func applyProtectionLogic(
 					result.ProtectedSkipped = append(result.ProtectedSkipped, key)
 					continue
 				}
+			}
+
+			// Protected label with no conflict - log for debugging
+			if !hasExisting {
+				// This is fine - setting a new protected label is allowed
+			} else if existingValue == value {
+				// This is fine - no change needed
 			}
 		}
 
@@ -250,7 +264,7 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	var allProtectionPatterns []string
 	var protectionMode labelsv1alpha1.ProtectionMode = labelsv1alpha1.ProtectionModeSkip
 	var ignoreExisting bool = false
-	
+
 	for _, cr := range list.Items {
 		allProtectionPatterns = append(allProtectionPatterns, cr.Spec.ProtectedLabelPatterns...)
 		// Use the most restrictive protection mode from all CRs
@@ -269,7 +283,7 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if ns.Labels == nil {
 		ns.Labels = map[string]string{}
 	}
-	
+
 	protectionResult := applyProtectionLogic(
 		desired,
 		ns.Labels,
@@ -282,7 +296,7 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// If protection mode is "fail" and we hit protected labels, fail the reconciliation
 	if protectionResult.ShouldFail {
 		if exists {
-			message := fmt.Sprintf("Reconciliation failed due to protected label conflicts: %s", 
+			message := fmt.Sprintf("Reconciliation failed due to protected label conflicts: %s",
 				strings.Join(protectionResult.Warnings, "; "))
 			updateStatus(&current, false, "ProtectedLabelConflict", message)
 			if err := r.Status().Update(ctx, &current); err != nil {
@@ -486,18 +500,28 @@ func readAppliedAnnotation(ns *corev1.Namespace) map[string]string {
 }
 
 func writeAppliedAnnotation(ctx context.Context, c client.Client, ns *corev1.Namespace, applied map[string]string) error {
-	if ns.Annotations == nil {
-		ns.Annotations = map[string]string{}
+	// Fetch a fresh copy of the namespace to avoid conflicts with the previously updated object
+	var freshNS corev1.Namespace
+	if err := c.Get(ctx, types.NamespacedName{Name: ns.Name}, &freshNS); err != nil {
+		return fmt.Errorf("failed to fetch namespace for annotation update: %w", err)
 	}
+
+	if freshNS.Annotations == nil {
+		freshNS.Annotations = map[string]string{}
+	}
+
 	b, err := json.Marshal(applied)
 	if err != nil {
 		return fmt.Errorf("marshal applied: %w", err)
 	}
-	if cur, ok := ns.Annotations[appliedAnnoKey]; ok && cur == string(b) {
-		return nil // no change
+
+	// Check if annotation already has the correct value
+	if cur, ok := freshNS.Annotations[appliedAnnoKey]; ok && cur == string(b) {
+		return nil // no change needed
 	}
-	ns.Annotations[appliedAnnoKey] = string(b)
-	return c.Update(ctx, ns)
+
+	freshNS.Annotations[appliedAnnoKey] = string(b)
+	return c.Update(ctx, &freshNS)
 }
 
 func updateStatus(cr *labelsv1alpha1.NamespaceLabel, ok bool, reason, msg string) {

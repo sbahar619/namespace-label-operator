@@ -73,7 +73,7 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 		if err != nil && !errors.IsNotFound(err) {
 			Expect(err).NotTo(HaveOccurred())
 		}
-		
+
 		// Wait for namespace to be fully deleted
 		Eventually(func() bool {
 			checkNS := &corev1.Namespace{}
@@ -237,7 +237,7 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 				},
 				Spec: labelsv1alpha1.NamespaceLabelSpec{
 					Labels: map[string]string{
-						"environment":             "test",
+						"environment":              "test",
 						"kubernetes.io/managed-by": "namespacelabel-operator", // This should be skipped
 					},
 					ProtectedLabelPatterns: []string{"kubernetes.io/*"},
@@ -256,7 +256,7 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 				}
 				return updatedNS.Labels
 			}, time.Minute, time.Second*2).Should(And(
-				HaveKeyWithValue("environment", "test"),              // Should be applied
+				HaveKeyWithValue("environment", "test"),                // Should be applied
 				HaveKeyWithValue("kubernetes.io/managed-by", "system"), // Should remain unchanged
 			))
 
