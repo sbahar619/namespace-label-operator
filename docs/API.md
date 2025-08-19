@@ -82,18 +82,6 @@ spec:
   protectionMode: warn
 ```
 
-### `ignoreExistingProtectedLabels` (bool)
-
-**Required**: No  
-**Default**: `false`
-
-When `true`, allows the operator to manage labels that match protected patterns if they were previously applied by this operator (tracked in namespace annotation).
-
-```yaml
-spec:
-  ignoreExistingProtectedLabels: true
-```
-
 ## Status (status)
 
 The status section is read-only and managed by the operator.
@@ -236,7 +224,6 @@ spec:
     - "istio.io/*"
     - "compliance"
   protectionMode: warn
-  ignoreExistingProtectedLabels: false
 status:
   applied: true
   message: "Applied 4 labels to namespace 'production-app', skipped 1 protected label"

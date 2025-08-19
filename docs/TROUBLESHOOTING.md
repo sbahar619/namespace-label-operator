@@ -199,12 +199,6 @@ spec:
     # Remove overly broad patterns or add exceptions
 ```
 
-**Allow Existing Protected Labels:**
-```yaml
-spec:
-  ignoreExistingProtectedLabels: true
-```
-
 ### 5. RBAC Permission Denied
 
 #### Symptoms

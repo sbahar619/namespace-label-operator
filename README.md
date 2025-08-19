@@ -102,7 +102,6 @@ spec:
     - "pod-security.kubernetes.io/*"  # Protect pod security labels
   
   protectionMode: warn            # skip, warn, or fail
-  ignoreExistingProtectedLabels: false
 ```
 
 ### GitOps Integration
@@ -171,7 +170,6 @@ spec:
     - "*.k8s.io/*"
     - "compliance.*"
   protectionMode: warn
-  ignoreExistingProtectedLabels: false
 ```
 
 ## 🔐 Security & RBAC

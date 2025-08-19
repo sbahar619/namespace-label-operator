@@ -45,7 +45,6 @@ spec:
     - "compliance.company.com/*"     # Protect compliance labels
   
   protectionMode: skip              # Silently skip protected labels
-  ignoreExistingProtectedLabels: false
 
 ---
 # Alternative: NamespaceLabel with WARN mode
@@ -100,7 +99,6 @@ spec:
     - "security.*"                  # Protect any security-related labels
   
   protectionMode: fail              # Fail reconciliation if conflicts detected
-  ignoreExistingProtectedLabels: false
 
 ---
 # Create critical namespace for the fail example
@@ -111,35 +109,6 @@ metadata:
   labels:
     kubernetes.io/managed-by: "security-team"
     security.company.com/zone: "restricted"
-
----
-# Example: Allow operator to manage previously applied protected labels
-apiVersion: labels.shahaf.com/v1alpha1
-kind: NamespaceLabel
-metadata:
-  name: labels
-  namespace: managed-system
-spec:
-  labels:
-    app: "managed-system"
-    environment: "production"
-    
-    # This protected label will be allowed because ignoreExistingProtectedLabels=true
-    # and the operator can manage labels it previously applied
-    kubernetes.io/managed-by: "namespacelabel-operator"
-  
-  protectedLabelPatterns:
-    - "kubernetes.io/*"
-  
-  protectionMode: skip
-  ignoreExistingProtectedLabels: true    # Allow managing our own protected labels
-
----
-# Create managed namespace
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: managed-system
 
 ---
 # Testing Instructions:
