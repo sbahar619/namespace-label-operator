@@ -5,8 +5,19 @@ Kubernetes operator for managing namespace labels with protection patterns.
 ## 🚀 Quick Start
 
 ### Install & Deploy
+
+**Option 1: One-click install (recommended for end users)**
 ```bash
-# Deploy the operator
+# Install from GitHub releases
+kubectl apply -f https://github.com/dana-team/namespacelabel/releases/latest/download/install.yaml
+
+# Or install from local build
+kubectl apply -f dist/install.yaml
+```
+
+**Option 2: Development deployment**
+```bash
+# Deploy the operator with custom image
 make full-deploy IMG=my-registry/namespacelabel:latest
 
 # Or install CRDs only
