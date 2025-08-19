@@ -132,39 +132,6 @@ var _ = Describe("NamespaceLabel Controller Unit Tests", func() {
 		})
 	})
 
-	Context("Slice Utility Functions", func() {
-		It("should remove existing item from slice", func() {
-			input := []string{"apple", "banana", "cherry"}
-			result := removeFromSlice(input, "banana")
-
-			Expect(result).To(Equal([]string{"apple", "cherry"}))
-			Expect(result).To(HaveLen(2))
-		})
-
-		It("should handle removing non-existing item", func() {
-			input := []string{"apple", "banana", "cherry"}
-			result := removeFromSlice(input, "orange")
-
-			Expect(result).To(Equal([]string{"apple", "banana", "cherry"}))
-			Expect(result).To(HaveLen(3))
-		})
-
-		It("should handle empty slice", func() {
-			input := []string{}
-			result := removeFromSlice(input, "anything")
-
-			Expect(result).To(BeEmpty())
-		})
-
-		It("should handle removing duplicate items", func() {
-			input := []string{"apple", "banana", "apple", "cherry"}
-			result := removeFromSlice(input, "apple")
-
-			Expect(result).To(Equal([]string{"banana", "cherry"}))
-			Expect(result).To(HaveLen(2))
-		})
-	})
-
 	Context("Label Merging Logic", func() {
 		It("should handle single CR correctly", func() {
 			crs := []labelsv1alpha1.NamespaceLabel{
@@ -244,7 +211,7 @@ var _ = Describe("NamespaceLabel Controller Unit Tests", func() {
 				Status: labelsv1alpha1.NamespaceLabelStatus{},
 			}
 
-			updateStatus(cr, true, "Synced", "Labels applied successfully")
+			updateStatus(cr, true, "Synced", "Labels applied successfully", nil, nil)
 
 			Expect(cr.Status.Applied).To(BeTrue())
 			Expect(cr.Status.Message).To(Equal("Labels applied successfully"))
@@ -262,7 +229,7 @@ var _ = Describe("NamespaceLabel Controller Unit Tests", func() {
 				Status: labelsv1alpha1.NamespaceLabelStatus{},
 			}
 
-			updateStatus(cr, false, "InvalidName", "CR must be named 'labels'")
+			updateStatus(cr, false, "InvalidName", "CR must be named 'labels'", nil, nil)
 
 			Expect(cr.Status.Applied).To(BeFalse())
 			Expect(cr.Status.Message).To(Equal("CR must be named 'labels'"))

@@ -84,7 +84,7 @@ make test
 make test-e2e
 
 # Run tests sequentially (for debugging)
-make test-e2e-sequential
+make test-e2e-debug
 
 # Lint code
 make lint

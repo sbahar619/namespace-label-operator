@@ -55,16 +55,12 @@ test: manifests generate fmt vet envtest ## Run unit tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 .PHONY: test-e2e
-test-e2e: ginkgo ## Run E2E tests in parallel (8 workers) using managed ginkgo.
+test-e2e: ginkgo ## Run E2E tests in parallel.
 	$(GINKGO) -v --procs=8 --compilers=8 --fail-on-pending --show-node-events --timeout=15m ./test/e2e/
 
-.PHONY: test-e2e-sequential
-test-e2e-sequential: ## Run E2E tests sequentially (for debugging).
+.PHONY: test-e2e-debug
+test-e2e-debug: ## Run E2E tests sequentially for debugging.
 	go test ./test/e2e/ -v -timeout 15m --ginkgo.v --ginkgo.fail-on-pending
-
-.PHONY: test-e2e-system
-test-e2e-system: ## Run E2E tests in parallel using system ginkgo (faster if available).
-	ginkgo -v --procs=8 --compilers=8 --fail-on-pending --show-node-events --timeout=15m ./test/e2e/
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter.
