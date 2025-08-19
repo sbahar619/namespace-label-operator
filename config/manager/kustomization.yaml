@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: quay.io/sbahar/namespacelabel
-  newTag: dev-v14
+  newTag: dev-v16

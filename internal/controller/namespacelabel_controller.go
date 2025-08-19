@@ -69,10 +69,8 @@ func isLabelProtected(labelKey string, protectionPatterns []string) bool {
 func applyProtectionLogic(
 	desired map[string]string,
 	existing map[string]string,
-	prevApplied map[string]string,
 	protectionPatterns []string,
 	protectionMode labelsv1alpha1.ProtectionMode,
-	ignoreExisting bool,
 ) ProtectionResult {
 	result := ProtectionResult{
 		AllowedLabels:    make(map[string]string),
@@ -85,13 +83,6 @@ func applyProtectionLogic(
 		// Check if this label is protected
 		if isLabelProtected(key, protectionPatterns) {
 			existingValue, hasExisting := existing[key]
-			_, wasPrevApplied := prevApplied[key]
-
-			// If ignoreExisting is true and we previously applied this label, allow it
-			if ignoreExisting && wasPrevApplied {
-				result.AllowedLabels[key] = value
-				continue
-			}
 
 			// If the label exists with a different value, apply protection
 			if hasExisting && existingValue != value {
@@ -263,7 +254,6 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Gather protection configuration from all CRs
 	var allProtectionPatterns []string
 	var protectionMode labelsv1alpha1.ProtectionMode = labelsv1alpha1.ProtectionModeSkip
-	var ignoreExisting bool = false
 
 	for _, cr := range list.Items {
 		allProtectionPatterns = append(allProtectionPatterns, cr.Spec.ProtectedLabelPatterns...)
@@ -272,10 +262,6 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			protectionMode = labelsv1alpha1.ProtectionModeFail
 		} else if cr.Spec.ProtectionMode == labelsv1alpha1.ProtectionModeWarn && protectionMode != labelsv1alpha1.ProtectionModeFail {
 			protectionMode = labelsv1alpha1.ProtectionModeWarn
-		}
-		// If any CR allows ignoring existing, apply that policy
-		if cr.Spec.IgnoreExistingProtectedLabels {
-			ignoreExisting = true
 		}
 	}
 
@@ -287,10 +273,8 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	protectionResult := applyProtectionLogic(
 		desired,
 		ns.Labels,
-		prevApplied,
 		allProtectionPatterns,
 		protectionMode,
-		ignoreExisting,
 	)
 
 	// If protection mode is "fail" and we hit protected labels, fail the reconciliation

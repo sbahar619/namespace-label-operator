@@ -23,5 +23,5 @@ spec:
   # Protection mode - skip protected labels silently (default: skip)
   protectionMode: skip
   
-  # Allow managing labels that match protection patterns if we applied them originally
-  ignoreExistingProtectedLabels: false
+  # NOTE: The operator enforces a singleton pattern - only one NamespaceLabel CR 
+  # named "labels" is allowed per namespace for operational simplicity.

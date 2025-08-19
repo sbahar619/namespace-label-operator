@@ -51,7 +51,7 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 					fmt.Printf("Warning: failed to delete CR %s: %v\n", cr.Name, err)
 				}
 			}
-			
+
 			// Wait for all CRs to be deleted (finalizers processed)
 			Eventually(func() int {
 				crList := &labelsv1alpha1.NamespaceLabelList{}
@@ -84,11 +84,11 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 
 	AfterEach(func() {
 		By("Cleaning up test namespace")
-		
+
 		// First, delete any NamespaceLabel CRs in the namespace to remove finalizers
 		By("Cleaning up NamespaceLabel CRs to remove finalizers")
 		cleanupNamespaceLabels(testNS)
-		
+
 		// Now delete the namespace
 		By("Deleting the test namespace")
 		ns := &corev1.Namespace{
@@ -109,7 +109,7 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 			checkNS := &corev1.Namespace{}
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, checkNS)
 			return errors.IsNotFound(err)
-		}, time.Minute*2, time.Second*2).Should(BeTrue(), 
+		}, time.Minute*2, time.Second*2).Should(BeTrue(),
 			fmt.Sprintf("Namespace %s should be deleted within 2 minutes", testNS))
 	})
 
@@ -305,42 +305,12 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 			}, time.Minute, time.Second).Should(ContainElement("kubernetes.io/managed-by"))
 		})
 
-		It("should allow override with ignoreExistingProtectedLabels", func() {
-			By("Creating a NamespaceLabel CR with ignoreExistingProtectedLabels enabled")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
-				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"kubernetes.io/test-label": "managed-value",
-					},
-					ProtectedLabelPatterns:        []string{"kubernetes.io/*"},
-					ProtectionMode:                "skip",
-					IgnoreExistingProtectedLabels: true,
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
-
-			By("Verifying the protected label was applied because we're the original setter")
-			Eventually(func() string {
-				ns := &corev1.Namespace{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)
-				if err != nil || ns.Labels == nil {
-					return ""
-				}
-				return ns.Labels["kubernetes.io/test-label"]
-			}, time.Minute, time.Second*2).Should(Equal("managed-value"))
-		})
-
 		// Test for regression: https://github.com/sbahar619/namespace-label-operator/issues/protection-race
 		// This test specifically validates that the protection system works correctly even when
 		// there are rapid reconciliations that could trigger race conditions in annotation updates.
-		// 
+		//
 		// Bug context: Previously, the writeAppliedAnnotation function could cause race conditions
-		// where protected labels would initially be skipped correctly, but then subsequent 
+		// where protected labels would initially be skipped correctly, but then subsequent
 		// reconciliations might bypass protection due to incorrect annotation state.
 		//
 		// This test ensures:
@@ -367,13 +337,12 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 				},
 				Spec: labelsv1alpha1.NamespaceLabelSpec{
 					Labels: map[string]string{
-						"environment":        "production",  // This should be applied
+						"environment":          "production",   // This should be applied
 						"system.io/managed-by": "hacker-value", // This should be blocked by protection
-						"tier":              "critical",    // This should be applied
+						"tier":                 "critical",     // This should be applied
 					},
 					ProtectedLabelPatterns: []string{"system.io/*"},
 					ProtectionMode:         "warn",
-					IgnoreExistingProtectedLabels: false, // Don't allow override
 				},
 			}
 
@@ -388,13 +357,13 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "labels", Namespace: testNS}, freshCR); err != nil {
 						return err
 					}
-					
+
 					// Update the counter to trigger reconciliation
 					freshCR.Spec.Labels["update-counter"] = fmt.Sprintf("update-%d", i)
 					return k8sClient.Update(ctx, freshCR)
-				}, time.Second*10, time.Millisecond*100).Should(Succeed(), 
+				}, time.Second*10, time.Millisecond*100).Should(Succeed(),
 					fmt.Sprintf("Should be able to update CR for iteration %d", i))
-				
+
 				// Small delay to allow controller processing
 				time.Sleep(time.Millisecond * 200)
 			}
@@ -418,9 +387,9 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 				}
 				return updatedNS.Labels
 			}, time.Minute, time.Second).Should(And(
-				HaveKeyWithValue("environment", "production"),    // Should be applied
-				HaveKeyWithValue("tier", "critical"),           // Should be applied
-				HaveKeyWithValue("update-counter", "update-4"),  // Should have latest update
+				HaveKeyWithValue("environment", "production"),           // Should be applied
+				HaveKeyWithValue("tier", "critical"),                    // Should be applied
+				HaveKeyWithValue("update-counter", "update-4"),          // Should have latest update
 				HaveKeyWithValue("system.io/managed-by", originalValue), // Should remain original
 			))
 
@@ -447,7 +416,7 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 				return updatedNS.Annotations["labels.shahaf.com/applied"]
 			}, time.Minute, time.Second).Should(And(
 				ContainSubstring("environment"),
-				ContainSubstring("tier"), 
+				ContainSubstring("tier"),
 				ContainSubstring("update-counter"),
 				Not(ContainSubstring("system.io/managed-by")), // Should NOT be in applied annotation
 			))

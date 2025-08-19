@@ -39,14 +39,6 @@ spec:
           spec:
             description: NamespaceLabelSpec defines the desired state of NamespaceLabel
             properties:
-              ignoreExistingProtectedLabels:
-                default: false
-                description: |-
-                  IgnoreExistingProtectedLabels when true, allows the operator to manage labels that match
-                  protected patterns if they were previously applied by this operator (tracked in annotation).
-                  This provides a way to manage labels that match protection patterns when the operator
-                  is the original source of truth for those labels.
-                type: boolean
               labels:
                 additionalProperties:
                   type: string

@@ -53,14 +53,6 @@ type NamespaceLabelSpec struct {
 	// +kubebuilder:default=skip
 	// +optional
 	ProtectionMode ProtectionMode `json:"protectionMode,omitempty"`
-
-	// IgnoreExistingProtectedLabels when true, allows the operator to manage labels that match
-	// protected patterns if they were previously applied by this operator (tracked in annotation).
-	// This provides a way to manage labels that match protection patterns when the operator
-	// is the original source of truth for those labels.
-	// +kubebuilder:default=false
-	// +optional
-	IgnoreExistingProtectedLabels bool `json:"ignoreExistingProtectedLabels,omitempty"`
 }
 
 // NamespaceLabelStatus defines the observed state of NamespaceLabel
