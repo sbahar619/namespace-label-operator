@@ -1,304 +1,221 @@
 # NamespaceLabel Operator
 
-A Kubernetes operator that manages namespace labels through custom resources, providing a safe, auditable, and scalable way to apply labels to namespaces with built-in protection for critical management labels.
-
-[![Go Report Card](https://goreportcard.com/badge/github.com/sbahar619/namespace-label-operator)](https://goreportcard.com/report/github.com/sbahar619/namespace-label-operator)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-
-## 🎯 Overview
-
-The NamespaceLabel operator allows you to manage namespace labels declaratively using Kubernetes custom resources. Instead of manually editing namespace manifests or using imperative kubectl commands, you can define desired labels in a `NamespaceLabel` custom resource, and the operator will ensure the namespace stays in sync.
-
-### Key Features
-
-- 🛡️ **Label Protection** - Protect critical management labels from accidental overwrites
-- 🔒 **Multi-tenant Security** - NamespaceLabel CRs can only affect their own namespace
-- 📋 **Singleton Pattern** - One `labels` CR per namespace for consistency
-- 🔄 **Declarative Management** - GitOps-friendly label management
-- 📊 **Status Reporting** - Clear status on applied vs skipped labels
-- 🧹 **Automatic Cleanup** - Safe removal of operator-managed labels
-- 🏷️ **Flexible Protection** - Configurable protection patterns and modes
+Kubernetes operator for managing namespace labels with protection patterns.
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Install & Deploy
+```bash
+# Deploy the operator
+make full-deploy IMG=my-registry/namespacelabel:latest
 
-- Kubernetes 1.21+
-- kubectl configured to access your cluster
-- Cluster admin permissions for installation
-
-### Installation
-
-1. **Install the operator:**
-   ```bash
-   kubectl apply -f https://raw.githubusercontent.com/sbahar619/namespace-label-operator/main/dist/install.yaml
-   ```
-
-2. **Verify installation:**
-   ```bash
-   kubectl get pods -n namespacelabel-system
-   kubectl get crd namespacelabels.labels.shahaf.com
-   ```
-
-3. **Create your first NamespaceLabel:**
-   ```bash
-   kubectl apply -f - <<EOF
-   apiVersion: labels.shahaf.com/v1alpha1
-   kind: NamespaceLabel
-   metadata:
-     name: labels
-     namespace: default
-   spec:
-     labels:
-       environment: "development"
-       team: "platform"
-       managed-by: "namespacelabel-operator"
-   EOF
-   ```
-
-4. **Check the results:**
-   ```bash
-   kubectl get namespace default --show-labels
-   kubectl get namespacelabel labels -n default -o yaml
-   ```
-
-## 📖 Usage Examples
-
-### Basic Label Management
-
-```yaml
-apiVersion: labels.shahaf.com/v1alpha1
-kind: NamespaceLabel
-metadata:
-  name: labels                    # Must be named "labels"
-  namespace: my-application       # Affects this namespace only
-spec:
-  labels:
-    environment: "production"
-    team: "backend"
-    cost-center: "engineering"
-    monitoring: "enabled"
+# Or install CRDs only
+make install
 ```
 
-### With Label Protection
-
-```yaml
+### Create a NamespaceLabel
+```bash
+kubectl apply -f - <<EOF
 apiVersion: labels.shahaf.com/v1alpha1
 kind: NamespaceLabel
 metadata:
   name: labels
-  namespace: production-app
+  namespace: my-app
 spec:
   labels:
-    environment: "production"
-    tier: "critical"
-    backup-policy: "daily"
-  
-  # Protect important management labels
-  protectedLabelPatterns:
-    - "kubernetes.io/*"           # Protect all kubernetes.io labels
-    - "*.k8s.io/*"               # Protect k8s ecosystem labels
-    - "istio.io/*"               # Protect service mesh labels
-    - "pod-security.kubernetes.io/*"  # Protect pod security labels
-  
-  protectionMode: warn            # skip, warn, or fail
+    environment: production
+    team: backend
+    tier: critical
+EOF
 ```
-
-### GitOps Integration
-
-```yaml
-# In your GitOps repository
-apiVersion: labels.shahaf.com/v1alpha1
-kind: NamespaceLabel
-metadata:
-  name: labels
-  namespace: team-backend
-spec:
-  labels:
-    environment: "${ENVIRONMENT}"      # Substituted by ArgoCD/Flux
-    team: "backend"
-    git-commit: "${COMMIT_SHA}"
-  protectedLabelPatterns:
-    - "kubernetes.io/*"
-  protectionMode: skip
-```
-
-## 🏗️ Architecture
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│  NamespaceLabel │    │   Controller     │    │   Namespace     │
-│       CR        │───▶│   Reconciler     │───▶│    Labels       │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                                │
-                                ▼
-                       ┌──────────────────┐
-                       │   Protection     │
-                       │     Logic        │
-                       └──────────────────┘
-```
-
-The operator watches for `NamespaceLabel` custom resources and applies the specified labels to the corresponding namespace. It includes sophisticated protection logic to prevent overwriting critical management labels.
 
 ## 🛡️ Label Protection
 
-### Protection Patterns
-
-Use glob patterns to protect important labels:
-
-| Pattern | Protects | Example Labels |
-|---------|----------|----------------|
-| `kubernetes.io/*` | Core Kubernetes labels | `kubernetes.io/managed-by` |
-| `*.k8s.io/*` | K8s ecosystem | `networking.k8s.io/ingress-class` |
-| `istio.io/*` | Service mesh | `istio.io/rev` |
-| `pod-security.kubernetes.io/*` | Pod security | `pod-security.kubernetes.io/enforce` |
-
-### Protection Modes
-
-| Mode | Behavior | Use Case |
-|------|----------|----------|
-| `skip` | Silently skip protected labels | Default, non-disruptive |
-| `warn` | Skip with warnings in logs/status | Compliance monitoring |
-| `fail` | Fail reconciliation completely | Strict enforcement |
-
-### Example Protection Configuration
+Protect important labels from being overwritten:
 
 ```yaml
+apiVersion: labels.shahaf.com/v1alpha1
+kind: NamespaceLabel
+metadata:
+  name: labels
+  namespace: my-app
 spec:
+  labels:
+    environment: production
+    kubernetes.io/managed-by: my-operator  # Will be blocked
+  
+  # Protection patterns (glob patterns)
   protectedLabelPatterns:
     - "kubernetes.io/*"
     - "*.k8s.io/*"
-    - "compliance.*"
+    - "istio.io/*"
+  
+  # Protection behavior: skip (silent) | warn (log) | fail (error)
   protectionMode: warn
 ```
 
-## 🔐 Security & RBAC
+**Protection Modes:**
+- `skip` - Silently skip protected labels ✅ (default)
+- `warn` - Skip protected labels + log warnings ⚠️
+- `fail` - Fail entire reconciliation ❌
 
-### Tenant Access
+## 🔧 Development
 
-The operator provides ClusterRoles for tenant access:
-
-- **`namespacelabel-editor-role`** - Full CRUD access to NamespaceLabel CRDs
-- **`namespacelabel-viewer-role`** - Read-only access
-
-#### Grant Access to Tenants
-
+### Build & Test
 ```bash
-# Grant editor access to a team
-kubectl create rolebinding namespacelabel-access \
-  --clusterrole=namespacelabel-editor-role \
-  --group=backend-team \
-  --namespace=team-backend
+# Build locally
+make build
 
-# Grant read-only access
-kubectl create rolebinding namespacelabel-viewer \
-  --clusterrole=namespacelabel-viewer-role \
-  --group=monitoring-team \
-  --namespace=any-namespace
-```
-
-### Security Features
-
-- **Namespace Isolation**: CRs can only affect their own namespace
-- **Singleton Pattern**: Only one `labels` CR allowed per namespace
-- **Protection Logic**: Prevents overwriting critical labels
-- **Audit Trail**: All changes logged and tracked
-
-## 📊 Monitoring & Observability
-
-### Status Fields
-
-```yaml
-status:
-  applied: true
-  message: "Applied 3 labels to namespace 'production', skipped 1 protected label"
-  protectedLabelsSkipped: ["kubernetes.io/managed-by"]
-  labelsApplied: ["environment", "team", "tier"]
-  conditions:
-  - type: Ready
-    status: "True"
-    reason: Synced
-    message: "Successfully applied labels"
-```
-
-### Metrics & Logging
-
-```bash
-# View controller logs
-kubectl logs -n namespacelabel-system deployment/namespacelabel-controller-manager
-
-# Check operator status
-kubectl get pods -n namespacelabel-system
-kubectl get namespacelabel -A
-```
-
-## 🛠️ Development
-
-### Building from Source
-
-```bash
-# Clone repository
-git clone https://github.com/sbahar619/namespace-label-operator
-cd namespace-label-operator
-
-# Run tests
+# Run unit tests
 make test
 
-# Build and run locally
+# Run E2E tests (requires cluster)
+make test-e2e
+
+# Run tests sequentially (for debugging)
+make test-e2e-sequential
+
+# Lint code
+make lint
+```
+
+### Local Development
+```bash
+# Generate manifests after code changes
+make manifests
+
+# Run controller locally (requires cluster access)
 make run
 
-# Build container image
-make docker-build IMG=my-registry/namespacelabel:latest
-make docker-push IMG=my-registry/namespacelabel:latest
+# Format and vet code
+make fmt vet
 ```
 
-### Running Tests
-
+### Container Images
 ```bash
-# Unit tests
-make test
+# Build container image
+make docker-build IMG=my-registry/namespacelabel:v1.0.0
 
-# E2E tests (requires Kind cluster)
-kind create cluster --name namespacelabel-test
-make test-e2e
+# Push to registry
+make docker-push IMG=my-registry/namespacelabel:v1.0.0
+
+# Build installer manifest
+make build-installer
 ```
 
-## 📚 Documentation
+## 🚢 Deployment
 
-- [API Reference](docs/API.md) - Complete API documentation
-- [Architecture Guide](docs/ARCHITECTURE.md) - Detailed architecture overview
-- [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
-- [Contributing](docs/CONTRIBUTING.md) - Development guidelines
-- [Examples](examples/) - Usage examples and tutorials
+### Complete Deployment
+```bash
+# Full deployment workflow (build + push + deploy + wait)
+make full-deploy IMG=my-registry/namespacelabel:v1.0.0
+```
 
-## 🤝 Contributing
+### Step-by-Step Deployment
+```bash
+# 1. Install CRDs
+make install
 
-Contributions are welcome! Please see our [Contributing Guide](docs/CONTRIBUTING.md) for details.
+# 2. Deploy controller
+make deploy IMG=my-registry/namespacelabel:v1.0.0
 
-### Development Setup
+# 3. Check status
+make deploy-status
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
+# 4. View logs
+make deploy-logs
+```
+
+### Monitoring
+```bash
+# Follow logs in real-time
+make deploy-logs-follow
+
+# Check deployment status
+make deploy-status
+
+# Wait for controller to be ready
+make wait-ready
+```
+
+### Cleanup
+```bash
+# Remove everything
+make cleanup
+
+# Or step by step
+make undeploy    # Remove controller
+make uninstall   # Remove CRDs
+```
+
+## 📋 API Reference
+
+### NamespaceLabel Spec
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `labels` | `map[string]string` | Labels to apply to namespace |
+| `protectedLabelPatterns` | `[]string` | Glob patterns for protected labels |
+| `protectionMode` | `string` | Protection behavior: `skip`/`warn`/`fail` |
+
+### Examples
+
+**Basic Usage:**
+```yaml
+spec:
+  labels:
+    app: web-app
+    environment: production
+```
+
+**With Protection:**
+```yaml
+spec:
+  labels:
+    app: web-app
+    environment: production
+  protectedLabelPatterns:
+    - "kubernetes.io/*"
+    - "istio.io/*"
+  protectionMode: warn
+```
+
+## 🔐 RBAC
+
+The operator creates these ClusterRoles:
+
+- `namespacelabel-editor-role` - For users to manage NamespaceLabel CRs
+- `namespacelabel-viewer-role` - Read-only access to NamespaceLabel CRs
+
+**Grant access to users:**
+```bash
+kubectl create clusterrolebinding alice-namespacelabel-editor \
+  --clusterrole=namespacelabel-editor-role \
+  --user=alice@company.com
+```
+
+## 🆘 Troubleshooting
+
+**Common Issues:**
+
+1. **Labels not applied** - Check controller logs: `make deploy-logs`
+2. **Protection conflicts** - Review `protectedLabelPatterns` and `protectionMode`
+3. **Permission denied** - Ensure user has `namespacelabel-editor-role`
+4. **Controller not ready** - Check deployment: `make deploy-status`
+
+**Debug Commands:**
+```bash
+# Check controller status
+kubectl get deployment -n namespacelabel-system
+
+# View NamespaceLabel status  
+kubectl get namespacelabel labels -n my-app -o yaml
+
+# Check namespace labels
+kubectl get namespace my-app --show-labels
+```
 
 ## 📄 License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
-## 🆘 Support
-
-- **Issues**: [GitHub Issues](https://github.com/sbahar619/namespace-label-operator/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/sbahar619/namespace-label-operator/discussions)
-- **Documentation**: [docs/](docs/)
-
-## 🏷️ Versioning
-
-We use [Semantic Versioning](https://semver.org/). For available versions, see the [tags on this repository](https://github.com/sbahar619/namespace-label-operator/tags).
-
-## ⭐ Star History
-
-If you find this project useful, please consider giving it a star! ⭐
+Apache License 2.0
 
