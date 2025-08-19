@@ -214,7 +214,6 @@ var _ = Describe("NamespaceLabel Controller Unit Tests", func() {
 			updateStatus(cr, true, "Synced", "Labels applied successfully", nil, nil)
 
 			Expect(cr.Status.Applied).To(BeTrue())
-			Expect(cr.Status.Message).To(Equal("Labels applied successfully"))
 			Expect(cr.Status.Conditions).To(HaveLen(1))
 
 			condition := cr.Status.Conditions[0]
@@ -232,7 +231,6 @@ var _ = Describe("NamespaceLabel Controller Unit Tests", func() {
 			updateStatus(cr, false, "InvalidName", "CR must be named 'labels'", nil, nil)
 
 			Expect(cr.Status.Applied).To(BeFalse())
-			Expect(cr.Status.Message).To(Equal("CR must be named 'labels'"))
 			Expect(cr.Status.Conditions).To(HaveLen(1))
 
 			condition := cr.Status.Conditions[0]

@@ -152,9 +152,6 @@ spec:
                 items:
                   type: string
                 type: array
-              message:
-                description: Message gives details about the last reconcile attempt
-                type: string
               protectedLabelsSkipped:
                 description: ProtectedLabelsSkipped lists label keys that were skipped
                   due to protection

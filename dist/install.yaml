@@ -160,9 +160,6 @@ spec:
                 items:
                   type: string
                 type: array
-              message:
-                description: Message gives details about the last reconcile attempt
-                type: string
               protectedLabelsSkipped:
                 description: ProtectedLabelsSkipped lists label keys that were skipped
                   due to protection
@@ -470,7 +467,7 @@ spec:
         - --leader-elect
         command:
         - /manager
-        image: quay.io/sbahar/namespacelabel:dev-v16
+        image: controller:latest
         livenessProbe:
           httpGet:
             path: /healthz

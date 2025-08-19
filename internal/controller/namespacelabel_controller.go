@@ -473,7 +473,6 @@ func writeAppliedAnnotation(ctx context.Context, c client.Client, ns *corev1.Nam
 
 func updateStatus(cr *labelsv1alpha1.NamespaceLabel, ok bool, reason, msg string, protectedSkipped, labelsApplied []string) {
 	cr.Status.Applied = ok
-	cr.Status.Message = msg
 	cr.Status.ProtectedLabelsSkipped = protectedSkipped
 	cr.Status.LabelsApplied = labelsApplied
 

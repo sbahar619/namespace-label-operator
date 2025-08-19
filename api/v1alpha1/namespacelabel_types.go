@@ -60,9 +60,6 @@ type NamespaceLabelStatus struct {
 	// Applied indicates whether the labels were successfully applied
 	Applied bool `json:"applied,omitempty"`
 
-	// Message gives details about the last reconcile attempt
-	Message string `json:"message,omitempty"`
-
 	// Conditions represent the latest available observations of the resource's state
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 

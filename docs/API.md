@@ -19,10 +19,9 @@
 | Field | Type | Description |
 |-------|------|-------------|
 | `applied` | `bool` | Whether labels were successfully applied |
-| `message` | `string` | Human-readable status message |
 | `protectedLabelsSkipped` | `[]string` | List of protected label keys that were skipped |
 | `labelsApplied` | `[]string` | List of label keys that were successfully applied |
-| `conditions` | `[]metav1.Condition` | Standard Kubernetes conditions |
+| `conditions` | `[]metav1.Condition` | Standard Kubernetes conditions with detailed status messages |
 
 ## Examples
 
@@ -87,13 +86,12 @@ spec:
 ```yaml
 status:
   applied: true
-  message: "Applied 2 labels, skipped 1 protected label"
   protectedLabelsSkipped: ["kubernetes.io/managed-by"]
   labelsApplied: ["environment", "team"]
   conditions:
   - type: Ready
     status: "True"
     reason: Synced
-    message: "Successfully applied labels"
+    message: "Applied 2 labels, skipped 1 protected label (kubernetes.io/managed-by)"
     lastTransitionTime: "2025-01-01T12:00:00Z"
 ``` 
