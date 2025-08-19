@@ -470,7 +470,7 @@ spec:
         - --leader-elect
         command:
         - /manager
-        image: controller:latest
+        image: quay.io/sbahar/namespacelabel:dev-v16
         livenessProbe:
           httpGet:
             path: /healthz
