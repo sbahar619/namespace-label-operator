@@ -183,27 +183,10 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 				},
 			}
 
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
-
-			By("Verifying the CR gets an error status")
-			Eventually(func() bool {
-				found := &labelsv1alpha1.NamespaceLabel{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "invalid-name",
-					Namespace: testNS,
-				}, found)
-				if err != nil {
-					return false
-				}
-
-				// Check if there are conditions and if any indicate failure
-				for _, condition := range found.Status.Conditions {
-					if condition.Status == metav1.ConditionFalse {
-						return true
-					}
-				}
-				return false
-			}, time.Minute, time.Second).Should(BeTrue())
+			By("Verifying the webhook rejects the CR creation")
+			err := k8sClient.Create(ctx, cr)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("NamespaceLabel resource must be named 'labels' for singleton pattern enforcement"))
 		})
 	})
 
@@ -590,7 +573,7 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 			}
 			Expect(k8sClient.Create(ctx, cr1)).To(Succeed())
 
-			By("Creating a second NamespaceLabel CR with invalid name")
+			By("Attempting to create a second NamespaceLabel CR with invalid name")
 			cr2 := &labelsv1alpha1.NamespaceLabel{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "other-labels",
@@ -602,27 +585,45 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 					},
 				},
 			}
-			Expect(k8sClient.Create(ctx, cr2)).To(Succeed())
 
-			By("Verifying the second CR gets an error status")
-			Eventually(func() bool {
-				found := &labelsv1alpha1.NamespaceLabel{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "other-labels",
+			By("Verifying the webhook rejects the second CR due to invalid name")
+			err := k8sClient.Create(ctx, cr2)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("NamespaceLabel resource must be named 'labels' for singleton pattern enforcement"))
+		})
+
+		It("should prevent creation of second CR with valid name when one already exists", func() {
+			By("Creating the first valid NamespaceLabel CR")
+			cr1 := &labelsv1alpha1.NamespaceLabel{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "labels",
 					Namespace: testNS,
-				}, found)
-				if err != nil {
-					return false
-				}
+				},
+				Spec: labelsv1alpha1.NamespaceLabelSpec{
+					Labels: map[string]string{
+						"environment": "production",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cr1)).To(Succeed())
 
-				// Check for failure condition with InvalidName reason
-				for _, condition := range found.Status.Conditions {
-					if condition.Type == "Ready" && condition.Status == metav1.ConditionFalse && condition.Reason == "InvalidName" {
-						return true
-					}
-				}
-				return false
-			}, time.Minute, time.Second).Should(BeTrue())
+			By("Attempting to create a second NamespaceLabel CR with the same valid name")
+			cr2 := &labelsv1alpha1.NamespaceLabel{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "labels", // Same name as the first CR
+					Namespace: testNS,
+				},
+				Spec: labelsv1alpha1.NamespaceLabelSpec{
+					Labels: map[string]string{
+						"team": "platform",
+					},
+				},
+			}
+
+			By("Verifying the webhook rejects the second CR due to singleton enforcement")
+			err := k8sClient.Create(ctx, cr2)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("only one NamespaceLabel resource is allowed per namespace"))
 		})
 	})
 

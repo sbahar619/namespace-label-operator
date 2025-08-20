@@ -6,22 +6,13 @@ Kubernetes operator for managing namespace labels with protection patterns.
 
 ### Install & Deploy
 
-**Option 1: One-click install (recommended for end users)**
 ```bash
-# Install from GitHub releases
+# Quick install from releases (certificates auto-generated)
 kubectl apply -f https://github.com/dana-team/namespacelabel/releases/latest/download/install.yaml
+./hack/generate-webhook-certs.sh
 
-# Or install from local build
-kubectl apply -f dist/install.yaml
-```
-
-**Option 2: Development deployment**
-```bash
-# Deploy the operator with custom image
-make full-deploy IMG=my-registry/namespacelabel:latest
-
-# Or install CRDs only
-make install
+# Or deploy with custom image
+make deploy IMG=your-registry/namespacelabel:tag
 ```
 
 ### Create a NamespaceLabel
@@ -116,37 +107,15 @@ make build-installer
 
 ## 🚢 Deployment
 
-### Complete Deployment
+### Development Deployment
 ```bash
-# Full deployment workflow (build + push + deploy + wait)
+# Full workflow: build + push + deploy + wait
 make full-deploy IMG=my-registry/namespacelabel:v1.0.0
-```
 
-### Step-by-Step Deployment
-```bash
-# 1. Install CRDs
-make install
-
-# 2. Deploy controller
-make deploy IMG=my-registry/namespacelabel:v1.0.0
-
-# 3. Check status
-make deploy-status
-
-# 4. View logs
-make deploy-logs
-```
-
-### Monitoring
-```bash
-# Follow logs in real-time
-make deploy-logs-follow
-
-# Check deployment status
-make deploy-status
-
-# Wait for controller to be ready
-make wait-ready
+# Step-by-step
+make install                                    # Install CRDs
+make deploy IMG=your-registry/namespacelabel:tag # Deploy controller
+make deploy-status                              # Check status
 ```
 
 ### Cleanup

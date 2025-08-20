@@ -130,41 +130,8 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	// Enforce singleton pattern: only allow CR named "labels"
-	if exists && current.Name != StandardCRName {
-		msg := fmt.Sprintf("NamespaceLabel must be named '%s'. Please delete this CR and use the standard name.", StandardCRName)
-		l.Error(nil, "Invalid NamespaceLabel name", "namespace", current.Namespace, "name", current.Name)
-		updateStatus(&current, false, "InvalidName", msg, nil, nil)
-		if err := r.Status().Update(ctx, &current); err != nil {
-			l.Error(err, "failed to update status for invalid name")
-		}
-		return ctrl.Result{}, nil
-	}
-
-	// Enforce singleton pattern: ensure only one active NamespaceLabel per namespace
-	if exists {
-		var allCRs labelsv1alpha1.NamespaceLabelList
-		if err := r.List(ctx, &allCRs, client.InNamespace(current.Namespace)); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		activeCRs := 0
-		for _, cr := range allCRs.Items {
-			if cr.DeletionTimestamp == nil {
-				activeCRs++
-			}
-		}
-
-		if activeCRs > 1 {
-			msg := fmt.Sprintf("Multiple NamespaceLabel CRs found (%d). Only one is allowed per namespace.", activeCRs)
-			l.Error(nil, "Multiple NamespaceLabel CRs", "namespace", current.Namespace, "count", activeCRs)
-			updateStatus(&current, false, "MultipleInstances", msg, nil, nil)
-			if err := r.Status().Update(ctx, &current); err != nil {
-				l.Error(err, "failed to update status for multiple instances")
-			}
-			return ctrl.Result{}, nil
-		}
-	}
+	// Note: Singleton pattern validation is now handled by the admission webhook
+	// No need to validate name or check for multiple CRs here
 
 	// Handle deletion
 	if exists && current.DeletionTimestamp != nil {
@@ -292,48 +259,34 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				l.Error(err, "failed to update status after annotation error")
 			}
 		}
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
+		// Continue despite annotation failure - labels were applied successfully
 	}
 
-	// If the CR from this request still exists, set its status (best-effort).
+	// Update status if the CR still exists
 	if exists {
-		// Log protection warnings if any
-		for _, warning := range protectionResult.Warnings {
-			l.Info("Label protection warning", "warning", warning)
-		}
-
-		labelCount := len(current.Spec.Labels)
+		labelCount := len(desired)
 		appliedCount := len(actuallyDesired)
 		skippedCount := len(protectionResult.ProtectedSkipped)
 
 		var msg string
 		if skippedCount > 0 {
 			msg = fmt.Sprintf("Applied %d labels to namespace '%s', skipped %d protected labels (%v). This is the only NamespaceLabel CR in this namespace (singleton pattern enforced).",
-				appliedCount, current.Namespace, skippedCount, protectionResult.ProtectedSkipped)
+				appliedCount, targetNS, skippedCount, protectionResult.ProtectedSkipped)
 		} else {
-			msg = fmt.Sprintf("Successfully applied %d labels to namespace '%s'. This is the only NamespaceLabel CR in this namespace (singleton pattern enforced).",
-				appliedCount, current.Namespace)
+			msg = fmt.Sprintf("Applied %d labels to namespace '%s'. This is the only NamespaceLabel CR in this namespace (singleton pattern enforced).",
+				appliedCount, targetNS)
 		}
 
-		// Additional context if there are no labels defined
-		if labelCount == 0 {
-			msg = fmt.Sprintf("NamespaceLabel CR is active but no labels are defined. Add labels to the spec to apply them to namespace '%s'.",
-				current.Namespace)
-		}
-
-		// Create list of applied label keys
 		appliedKeys := make([]string, 0, len(actuallyDesired))
-		for key := range actuallyDesired {
-			appliedKeys = append(appliedKeys, key)
+		for k := range actuallyDesired {
+			appliedKeys = append(appliedKeys, k)
 		}
-		sort.Strings(appliedKeys)
 
 		l.Info("NamespaceLabel successfully processed",
 			"namespace", current.Namespace, "labelsApplied", appliedCount, "labelsRequested", labelCount, "protectedSkipped", skippedCount)
 		updateStatus(&current, true, "Synced", msg, protectionResult.ProtectedSkipped, appliedKeys)
 		if err := r.Status().Update(ctx, &current); err != nil {
 			l.Error(err, "failed to update CR status")
-			// Don't return error; namespace labels were applied successfully
 		}
 	}
 
