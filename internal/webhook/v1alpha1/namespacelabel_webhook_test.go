@@ -21,7 +21,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	labelsv1alpha1 "github.com/sbahar619/namespace-label-operator/api/v1alpha1"
-	// TODO (user): Add any additional imports if needed
 )
 
 var _ = Describe("NamespaceLabel Webhook", func() {
@@ -38,11 +37,10 @@ var _ = Describe("NamespaceLabel Webhook", func() {
 		Expect(validator).NotTo(BeNil(), "Expected validator to be initialized")
 		Expect(oldObj).NotTo(BeNil(), "Expected oldObj to be initialized")
 		Expect(obj).NotTo(BeNil(), "Expected obj to be initialized")
-		// TODO (user): Add any setup logic common to all tests
 	})
 
 	AfterEach(func() {
-		// TODO (user): Add any teardown logic common to all tests
+		// No cleanup needed for these tests
 	})
 
 	Context("When creating or updating NamespaceLabel under Validating Webhook", func() {
