@@ -167,8 +167,8 @@ wait-webhook-ready: ## Wait for webhook deployment to be ready.
 		-n $(CONTROLLER_NAMESPACE) --timeout=$(DEPLOYMENT_TIMEOUT)
 	@echo "✅ Webhook is ready!"
 
-.PHONY: check-img
-check-img: ## Validate that CONTROLLER_IMG environment variable is set.
+.PHONY: check-controller-img
+check-controller-img: ## Validate that CONTROLLER_IMG environment variable is set.
 	@if [ -z "$(CONTROLLER_IMG)" ] || [ "$(CONTROLLER_IMG)" = "controller:main" ]; then \
 		echo "❌ Error: Please set CONTROLLER_IMG environment variable to your image repository"; \
 		echo "💡 Example: export CONTROLLER_IMG=quay.io/username/namespacelabel:v1.0.0"; \
@@ -178,11 +178,11 @@ check-img: ## Validate that CONTROLLER_IMG environment variable is set.
 	@echo "✅ Using image: $(CONTROLLER_IMG)"
 
 .PHONY: build-and-push
-build-and-push: check-img docker-build docker-push ## Build and push container image.
+build-and-push: check-controller-img docker-build docker-push ## Build and push container image.
 	@echo "✅ Image $(CONTROLLER_IMG) built and pushed successfully"
 
 .PHONY: build-and-push-all
-build-and-push-all: check-img check-webhook-img docker-build-all docker-push-all ## Build and push both controller and webhook images.
+build-and-push-all: check-controller-img check-webhook-img docker-build-all docker-push-all ## Build and push both controller and webhook images.
 	@echo "✅ Both images $(CONTROLLER_IMG) and $(WEBHOOK_IMG) built and pushed successfully"
 
 .PHONY: check-webhook-img
