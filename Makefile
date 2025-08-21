@@ -218,16 +218,6 @@ deploy-status: ## Show detailed deployment status.
 	@echo "📋 Recent Events:"
 	@$(KUBECTL) get events -n $(CONTROLLER_NAMESPACE) --sort-by='.lastTimestamp' | tail -10 2>/dev/null || echo "❌ No events found"
 
-.PHONY: deploy-logs
-deploy-logs: ## Show controller logs (last 50 lines).
-	@echo "📋 Controller Logs (last 50 lines):"
-	@$(KUBECTL) logs deployment/$(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE) --tail=50 --timestamps 2>/dev/null || echo "❌ Controller not found"
-
-.PHONY: deploy-logs-follow
-deploy-logs-follow: ## Follow controller logs in real-time.
-	@echo "📋 Following controller logs (Ctrl+C to stop):"
-	@$(KUBECTL) logs deployment/$(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE) -f --timestamps
-
 .PHONY: cleanup
 cleanup: undeploy uninstall-safe ## Complete cleanup: undeploy operator and remove CRDs.
 	@echo "🧹 Cleanup completed"
