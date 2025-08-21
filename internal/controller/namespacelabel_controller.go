@@ -64,10 +64,6 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Target namespace is always the same as the CR's namespace for multi-tenant security
 	targetNS := req.Namespace
-	if targetNS == "" {
-		// Should never happen for namespaced resources, but be defensive
-		return ctrl.Result{}, nil
-	}
 
 	// Get the target Namespace object to modify its labels
 	ns, err := r.getTargetNamespace(ctx, targetNS)

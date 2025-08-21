@@ -57,7 +57,7 @@ test: manifests generate fmt vet envtest ## Run unit tests.
 
 .PHONY: test-e2e
 test-e2e: ginkgo ## Run E2E tests in parallel.
-	$(GINKGO) -v --procs=8 --compilers=8 --fail-on-pending --show-node-events --timeout=15m ./test/e2e/
+	$(GINKGO) -v --procs=16 --compilers=16 --fail-on-pending --show-node-events --timeout=15m ./test/e2e/
 
 .PHONY: test-e2e-debug
 test-e2e-debug: ## Run E2E tests sequentially for debugging.
