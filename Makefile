@@ -218,11 +218,6 @@ deploy-status: ## Show detailed deployment status.
 	@echo "📋 Recent Events:"
 	@$(KUBECTL) get events -n $(CONTROLLER_NAMESPACE) --sort-by='.lastTimestamp' | tail -10 2>/dev/null || echo "❌ No events found"
 
-.PHONY: cleanup
-cleanup: undeploy uninstall ## Complete cleanup: undeploy operator and remove CRDs.
-	@echo "🧹 Cleanup completed"
-	@echo "💡 To redeploy, run: make full-deploy CONTROLLER_IMG=your-controller:tag WEBHOOK_IMG=your-webhook:tag"
-
 ##@ Dependencies
 
 # Location to install dependencies to
