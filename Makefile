@@ -195,10 +195,6 @@ check-webhook-img: ## Validate that WEBHOOK_IMG environment variable is set.
 	fi
 	@echo "✅ Using webhook image: $(WEBHOOK_IMG)"
 
-.PHONY: deploy-controller
-deploy-controller: install deploy ## Install CRDs and deploy the complete operator.
-	@echo "✅ Operator deployed successfully"
-
 .PHONY: wait-ready
 wait-ready: ## Wait for controller deployment to be ready.
 	@echo "⏳ Waiting for controller to be ready (timeout: $(DEPLOYMENT_TIMEOUT))..."
