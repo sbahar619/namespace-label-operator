@@ -2,17 +2,13 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	labelsv1alpha1 "github.com/sbahar619/namespace-label-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -27,96 +23,10 @@ import (
 // +kubebuilder:rbac:groups=labels.shahaf.com,resources=namespacelabels/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;update;patch
 
-const (
-	appliedAnnoKey = "labels.shahaf.com/applied" // JSON of map[string]string
-	FinalizerName  = "labels.shahaf.com/finalizer"
-	StandardCRName = "labels" // Standard name for NamespaceLabel CRs (singleton pattern)
-)
-
 // NamespaceLabelReconciler reconciles a NamespaceLabel object
 type NamespaceLabelReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
-}
-
-// ProtectionResult represents the result of applying protection logic
-type ProtectionResult struct {
-	AllowedLabels    map[string]string
-	ProtectedSkipped []string
-	Warnings         []string
-	ShouldFail       bool
-}
-
-// isLabelProtected checks if a label key matches any of the protection patterns
-func isLabelProtected(labelKey string, protectionPatterns []string) bool {
-	for _, pattern := range protectionPatterns {
-		// Skip empty patterns
-		if pattern == "" {
-			continue
-		}
-
-		// Use filepath.Match for glob pattern matching
-		if matched, err := filepath.Match(pattern, labelKey); err == nil && matched {
-			return true
-		}
-		// If there's an error in pattern matching, log it but continue
-		// This prevents malformed patterns from breaking protection
-	}
-	return false
-}
-
-// applyProtectionLogic processes desired labels against protection rules
-func applyProtectionLogic(
-	desired map[string]string,
-	existing map[string]string,
-	protectionPatterns []string,
-	protectionMode labelsv1alpha1.ProtectionMode,
-) ProtectionResult {
-	result := ProtectionResult{
-		AllowedLabels:    make(map[string]string),
-		ProtectedSkipped: []string{},
-		Warnings:         []string{},
-		ShouldFail:       false,
-	}
-
-	for key, value := range desired {
-		// Check if this label is protected
-		if isLabelProtected(key, protectionPatterns) {
-			existingValue, hasExisting := existing[key]
-
-			// If the label exists with a different value, apply protection
-			if hasExisting && existingValue != value {
-				msg := fmt.Sprintf("Label '%s' is protected by pattern and has existing value '%s' (attempting to set '%s')",
-					key, existingValue, value)
-
-				switch protectionMode {
-				case labelsv1alpha1.ProtectionModeFail:
-					result.ShouldFail = true
-					result.Warnings = append(result.Warnings, msg)
-					return result
-				case labelsv1alpha1.ProtectionModeWarn:
-					result.Warnings = append(result.Warnings, msg)
-					result.ProtectedSkipped = append(result.ProtectedSkipped, key)
-					continue
-				default: // ProtectionModeSkip
-					result.ProtectedSkipped = append(result.ProtectedSkipped, key)
-					continue
-				}
-			}
-
-			// Protected label with no conflict - log for debugging
-			if !hasExisting {
-				// This is fine - setting a new protected label is allowed
-			} else if existingValue == value {
-				// This is fine - no change needed
-			}
-		}
-
-		// Label is either not protected or safe to apply
-		result.AllowedLabels[key] = value
-	}
-
-	return result
 }
 
 func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -362,106 +272,6 @@ func (r *NamespaceLabelReconciler) handleDeletion(ctx context.Context, cr *label
 	// Remove finalizer
 	controllerutil.RemoveFinalizer(cr, FinalizerName)
 	return ctrl.Result{}, r.Update(ctx, cr)
-}
-
-// mergeDesiredLabels merges labels from many CRs in the same namespace.
-// Conflict policy: if multiple CRs set the same key with different values,
-// the CR with the lexicographically smallest name wins for that key.
-func mergeDesiredLabels(items []labelsv1alpha1.NamespaceLabel) (map[string]string, map[string]string) {
-	desired := make(map[string]string)
-	perKeyWinner := make(map[string]string) // key -> CR name that won
-
-	// Sort CRs by name ascending for deterministic results
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-
-	for _, cr := range items {
-		for k, v := range cr.Spec.Labels {
-			// If key not yet set, or set by a CR with a "larger" name, this CR wins.
-			if winner, exists := perKeyWinner[k]; !exists || cr.Name < winner {
-				desired[k] = v
-				perKeyWinner[k] = cr.Name
-			}
-		}
-	}
-	return desired, perKeyWinner
-}
-
-func readAppliedAnnotation(ns *corev1.Namespace) map[string]string {
-	out := map[string]string{}
-	if ns.Annotations == nil {
-		return out
-	}
-	raw, ok := ns.Annotations[appliedAnnoKey]
-	if !ok || raw == "" {
-		return out
-	}
-	_ = json.Unmarshal([]byte(raw), &out)
-	return out
-}
-
-func writeAppliedAnnotation(ctx context.Context, c client.Client, ns *corev1.Namespace, applied map[string]string) error {
-	// Fetch a fresh copy of the namespace to avoid conflicts with the previously updated object
-	var freshNS corev1.Namespace
-	if err := c.Get(ctx, types.NamespacedName{Name: ns.Name}, &freshNS); err != nil {
-		return fmt.Errorf("failed to fetch namespace for annotation update: %w", err)
-	}
-
-	if freshNS.Annotations == nil {
-		freshNS.Annotations = map[string]string{}
-	}
-
-	b, err := json.Marshal(applied)
-	if err != nil {
-		return fmt.Errorf("marshal applied: %w", err)
-	}
-
-	// Check if annotation already has the correct value
-	if cur, ok := freshNS.Annotations[appliedAnnoKey]; ok && cur == string(b) {
-		return nil // no change needed
-	}
-
-	freshNS.Annotations[appliedAnnoKey] = string(b)
-	return c.Update(ctx, &freshNS)
-}
-
-func updateStatus(cr *labelsv1alpha1.NamespaceLabel, ok bool, reason, msg string, protectedSkipped, labelsApplied []string) {
-	cr.Status.Applied = ok
-	cr.Status.ProtectedLabelsSkipped = protectedSkipped
-	cr.Status.LabelsApplied = labelsApplied
-
-	// Update condition
-	cond := metav1.Condition{
-		Type:               "Ready",
-		Status:             metav1.ConditionTrue,
-		Reason:             reason,
-		Message:            msg,
-		ObservedGeneration: cr.Generation,
-		LastTransitionTime: metav1.Now(),
-	}
-	if !ok {
-		cond.Status = metav1.ConditionFalse
-	}
-
-	// Replace existing Ready condition or add new one
-	for i := range cr.Status.Conditions {
-		if cr.Status.Conditions[i].Type == "Ready" {
-			cr.Status.Conditions[i] = cond
-			return
-		}
-	}
-	cr.Status.Conditions = append(cr.Status.Conditions, cond)
-}
-
-// updateStatusWithProtection is deprecated - use updateStatus instead
-func updateStatusWithProtection(cr *labelsv1alpha1.NamespaceLabel, ok bool, reason, msg string, protectedSkipped, labelsApplied []string) {
-	updateStatus(cr, ok, reason, msg, protectedSkipped, labelsApplied)
-}
-
-func boolToCond(b bool) metav1.ConditionStatus {
-	if b {
-		return metav1.ConditionTrue
-	}
-	return metav1.ConditionFalse
 }
 
 func (r *NamespaceLabelReconciler) SetupWithManager(mgr ctrl.Manager) error {
