@@ -70,30 +70,15 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	// List ALL NamespaceLabel CRs in this namespace and merge labels.
-	var list labelsv1alpha1.NamespaceLabelList
-	if err := r.List(ctx, &list, client.InNamespace(targetNS)); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	desired, _ := mergeDesiredLabels(list.Items)
+	// Since we enforce singleton pattern, use the current CR directly
+	desired := current.Spec.Labels
 
 	// Load what we previously applied (from annotation) to compute removals safely.
 	prevApplied := readAppliedAnnotation(&ns)
 
-	// Gather protection configuration from all CRs
-	var allProtectionPatterns []string
-	var protectionMode labelsv1alpha1.ProtectionMode = labelsv1alpha1.ProtectionModeSkip
-
-	for _, cr := range list.Items {
-		allProtectionPatterns = append(allProtectionPatterns, cr.Spec.ProtectedLabelPatterns...)
-		// Use the most restrictive protection mode from all CRs
-		if cr.Spec.ProtectionMode == labelsv1alpha1.ProtectionModeFail {
-			protectionMode = labelsv1alpha1.ProtectionModeFail
-		} else if cr.Spec.ProtectionMode == labelsv1alpha1.ProtectionModeWarn && protectionMode != labelsv1alpha1.ProtectionModeFail {
-			protectionMode = labelsv1alpha1.ProtectionModeWarn
-		}
-	}
+	// Get protection configuration from the current CR
+	allProtectionPatterns := current.Spec.ProtectedLabelPatterns
+	protectionMode := current.Spec.ProtectionMode
 
 	// Apply protection logic
 	if ns.Labels == nil {
@@ -209,21 +194,9 @@ func (r *NamespaceLabelReconciler) handleDeletion(ctx context.Context, cr *label
 	}
 
 	// Get all remaining CRs in this namespace (excluding the one being deleted)
-	var list labelsv1alpha1.NamespaceLabelList
-	if err := r.List(ctx, &list, client.InNamespace(targetNS)); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	var remainingCRs []labelsv1alpha1.NamespaceLabel
-	for _, otherCR := range list.Items {
-		if otherCR.Name == cr.Name {
-			continue // Skip the one being deleted
-		}
-		remainingCRs = append(remainingCRs, otherCR)
-	}
-
-	// Calculate what labels should remain after this CR is deleted
-	desiredAfterDeletion, _ := mergeDesiredLabels(remainingCRs)
+	// Since we enforce singleton pattern, there will be NO remaining CRs
+	// So we should remove ALL labels that were applied by this operator
+	desiredAfterDeletion := map[string]string{} // Empty - no remaining CRs
 
 	// Get currently applied labels
 	prevApplied := readAppliedAnnotation(&ns)
