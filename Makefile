@@ -219,13 +219,9 @@ deploy-status: ## Show detailed deployment status.
 	@$(KUBECTL) get events -n $(CONTROLLER_NAMESPACE) --sort-by='.lastTimestamp' | tail -10 2>/dev/null || echo "❌ No events found"
 
 .PHONY: cleanup
-cleanup: undeploy uninstall-safe ## Complete cleanup: undeploy operator and remove CRDs.
+cleanup: undeploy uninstall ## Complete cleanup: undeploy operator and remove CRDs.
 	@echo "🧹 Cleanup completed"
 	@echo "💡 To redeploy, run: make full-deploy CONTROLLER_IMG=your-controller:tag WEBHOOK_IMG=your-webhook:tag"
-
-.PHONY: uninstall-safe
-uninstall-safe: ## Safely uninstall CRDs (ignores not-found errors).
-	$(MAKE) uninstall ignore-not-found=true
 
 ##@ Dependencies
 
