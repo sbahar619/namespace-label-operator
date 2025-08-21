@@ -1,8 +1,12 @@
 package controller
 
 import (
+	"context"
+	"fmt"
+
 	labelsv1alpha1 "github.com/sbahar619/namespace-label-operator/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 func updateStatus(cr *labelsv1alpha1.NamespaceLabel, ok bool, reason, msg string, protectedSkipped, labelsApplied []string) {
@@ -33,7 +37,31 @@ func updateStatus(cr *labelsv1alpha1.NamespaceLabel, ok bool, reason, msg string
 	cr.Status.Conditions = append(cr.Status.Conditions, cond)
 }
 
-// updateStatusWithProtection is deprecated - use updateStatus instead
-func updateStatusWithProtection(cr *labelsv1alpha1.NamespaceLabel, ok bool, reason, msg string, protectedSkipped, labelsApplied []string) {
-	updateStatus(cr, ok, reason, msg, protectedSkipped, labelsApplied)
+// updateSuccessStatus updates the CR status after successful reconciliation
+func (r *NamespaceLabelReconciler) updateSuccessStatus(ctx context.Context, cr *labelsv1alpha1.NamespaceLabel, desired, actuallyDesired map[string]string, protectionResult ProtectionResult, targetNS string) error {
+	l := log.FromContext(ctx)
+
+	labelCount := len(desired)
+	appliedCount := len(actuallyDesired)
+	skippedCount := len(protectionResult.ProtectedSkipped)
+
+	var msg string
+	if skippedCount > 0 {
+		msg = fmt.Sprintf("Applied %d labels to namespace '%s', skipped %d protected labels (%v)",
+			appliedCount, targetNS, skippedCount, protectionResult.ProtectedSkipped)
+	} else {
+		msg = fmt.Sprintf("Applied %d labels to namespace '%s'",
+			appliedCount, targetNS)
+	}
+
+	appliedKeys := make([]string, 0, len(actuallyDesired))
+	for k := range actuallyDesired {
+		appliedKeys = append(appliedKeys, k)
+	}
+
+	l.Info("NamespaceLabel successfully processed",
+		"namespace", cr.Namespace, "labelsApplied", appliedCount, "labelsRequested", labelCount, "protectedSkipped", skippedCount)
+
+	updateStatus(cr, true, "Synced", msg, protectionResult.ProtectedSkipped, appliedKeys)
+	return r.Status().Update(ctx, cr)
 }
