@@ -56,7 +56,7 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var webhookPort int
-	
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&secureMetrics, "metrics-secure", false,
@@ -64,7 +64,7 @@ func main() {
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.IntVar(&webhookPort, "webhook-port", 9443, "The port the webhook server serves at.")
-	
+
 	opts := zap.Options{
 		Development: true,
 	}
@@ -131,4 +131,4 @@ func main() {
 		setupLog.Error(err, "problem running webhook server")
 		os.Exit(1)
 	}
-} 
+}

@@ -71,15 +71,15 @@ lint: golangci-lint ## Run golangci-lint linter.
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes.
 	$(GOLANGCI_LINT) run --fix
 
+.PHONY: run
+run: manifests generate fmt vet ## Run a controller from your host.
+	go run ./cmd/main.go
+
 ##@ Build
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
-
-.PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
@@ -133,13 +133,6 @@ deploy: manifests kustomize ## Deploy the complete operator (controller and webh
 	@echo "🔐 Generating webhook certificates..."
 	@./hack/generate-webhook-certs.sh
 
-.PHONY: deploy-controller-only
-deploy-controller-only: manifests kustomize ## Deploy only the controller (without webhook) to the K8s cluster.
-	@echo "🏗️ Setting controller image reference..."
-	@cd config/manager && $(KUSTOMIZE) edit set image controller=${CONTROLLER_IMG}
-	@echo "🚀 Deploying controller to cluster..."
-	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
-
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy the complete operator from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
@@ -148,24 +141,14 @@ undeploy: kustomize ## Undeploy the complete operator from the K8s cluster speci
 	@cd config/webhook && $(KUSTOMIZE) edit set image webhook=webhook:main
 	@echo "✅ Image references reset successfully"
 
-##@ Enhanced Deployment
+.PHONY: deploy-controller-only
+deploy-controller-only: manifests kustomize ## Deploy only the controller (without webhook) to the K8s cluster.
+	@echo "🏗️ Setting controller image reference..."
+	@cd config/manager && $(KUSTOMIZE) edit set image controller=${CONTROLLER_IMG}
+	@echo "🚀 Deploying controller to cluster..."
+	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
-.PHONY: full-deploy
-full-deploy: build-and-push-all install deploy wait-ready wait-webhook-ready ## Complete deployment workflow: build, push, deploy, and wait for readiness.
-	@echo "🎉 Full deployment completed successfully!"
-	@echo "📋 Controller Status:"
-	@$(KUBECTL) get deployment $(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE)
-	@echo "📋 Webhook Status:"
-	@$(KUBECTL) get deployment namespacelabel-webhook-server -n $(CONTROLLER_NAMESPACE)
-	@echo "📊 Pod Status:"
-	@$(KUBECTL) get pods -n $(CONTROLLER_NAMESPACE)
-
-.PHONY: wait-webhook-ready
-wait-webhook-ready: ## Wait for webhook deployment to be ready.
-	@echo "⏳ Waiting for webhook to be ready (timeout: $(DEPLOYMENT_TIMEOUT))..."
-	@$(KUBECTL) wait --for=condition=available deployment/namespacelabel-webhook-server \
-		-n $(CONTROLLER_NAMESPACE) --timeout=$(DEPLOYMENT_TIMEOUT)
-	@echo "✅ Webhook is ready!"
+##@ Validation
 
 .PHONY: check-controller-img
 check-controller-img: ## Validate that CONTROLLER_IMG environment variable is set.
@@ -177,10 +160,6 @@ check-controller-img: ## Validate that CONTROLLER_IMG environment variable is se
 	fi
 	@echo "✅ Using image: $(CONTROLLER_IMG)"
 
-.PHONY: build-and-push-all
-build-and-push-all: check-controller-img check-webhook-img docker-build-all docker-push-all ## Build and push both controller and webhook images.
-	@echo "✅ Both images $(CONTROLLER_IMG) and $(WEBHOOK_IMG) built and pushed successfully"
-
 .PHONY: check-webhook-img
 check-webhook-img: ## Validate that WEBHOOK_IMG environment variable is set.
 	@if [ -z "$(WEBHOOK_IMG)" ] || [ "$(WEBHOOK_IMG)" = "webhook:main" ]; then \
@@ -191,12 +170,37 @@ check-webhook-img: ## Validate that WEBHOOK_IMG environment variable is set.
 	fi
 	@echo "✅ Using webhook image: $(WEBHOOK_IMG)"
 
+##@ Workflows
+
+.PHONY: build-and-push-all
+build-and-push-all: check-controller-img check-webhook-img docker-build-all docker-push-all ## Build and push both controller and webhook images.
+	@echo "✅ Both images $(CONTROLLER_IMG) and $(WEBHOOK_IMG) built and pushed successfully"
+
+.PHONY: full-deploy
+full-deploy: build-and-push-all install deploy wait-ready wait-webhook-ready ## Complete deployment workflow: build, push, deploy, and wait for readiness.
+	@echo "🎉 Full deployment completed successfully!"
+	@echo "📋 Controller Status:"
+	@$(KUBECTL) get deployment $(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE)
+	@echo "📋 Webhook Status:"
+	@$(KUBECTL) get deployment namespacelabel-webhook-server -n $(CONTROLLER_NAMESPACE)
+	@echo "📊 Pod Status:"
+	@$(KUBECTL) get pods -n $(CONTROLLER_NAMESPACE)
+
+##@ Monitoring
+
 .PHONY: wait-ready
 wait-ready: ## Wait for controller deployment to be ready.
 	@echo "⏳ Waiting for controller to be ready (timeout: $(DEPLOYMENT_TIMEOUT))..."
 	@$(KUBECTL) wait --for=condition=available deployment/$(CONTROLLER_DEPLOYMENT) \
 		-n $(CONTROLLER_NAMESPACE) --timeout=$(DEPLOYMENT_TIMEOUT)
 	@echo "✅ Controller is ready!"
+
+.PHONY: wait-webhook-ready
+wait-webhook-ready: ## Wait for webhook deployment to be ready.
+	@echo "⏳ Waiting for webhook to be ready (timeout: $(DEPLOYMENT_TIMEOUT))..."
+	@$(KUBECTL) wait --for=condition=available deployment/namespacelabel-webhook-server \
+		-n $(CONTROLLER_NAMESPACE) --timeout=$(DEPLOYMENT_TIMEOUT)
+	@echo "✅ Webhook is ready!"
 
 .PHONY: deploy-status
 deploy-status: ## Show detailed deployment status.
