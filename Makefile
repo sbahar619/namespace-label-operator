@@ -1,5 +1,6 @@
 # Image URL to use for building/pushing image targets
-IMG ?= controller:latest
+CONTROLLER_IMG ?= controller:main
+WEBHOOK_IMG ?= webhook:main
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary
 ENVTEST_K8S_VERSION = 1.29.0
@@ -82,16 +83,30 @@ run: manifests generate fmt vet ## Run a controller from your host.
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build -t ${CONTROLLER_IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
-	$(CONTAINER_TOOL) push ${IMG}
+	$(CONTAINER_TOOL) push ${CONTROLLER_IMG}
+
+.PHONY: webhook-docker-build
+webhook-docker-build: ## Build docker image with the webhook.
+	$(CONTAINER_TOOL) build -t ${WEBHOOK_IMG} -f Dockerfile.webhook .
+
+.PHONY: webhook-docker-push
+webhook-docker-push: ## Push docker image with the webhook.
+	$(CONTAINER_TOOL) push ${WEBHOOK_IMG}
+
+.PHONY: docker-build-all
+docker-build-all: docker-build webhook-docker-build ## Build both controller and webhook docker images.
+
+.PHONY: docker-push-all
+docker-push-all: docker-push webhook-docker-push ## Push both controller and webhook docker images.
 
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
 	mkdir -p dist
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	@cd config/manager && $(KUSTOMIZE) edit set image controller=${CONTROLLER_IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
 
 ##@ Deployment
@@ -110,7 +125,19 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	@echo "🏗️ Setting image references..."
+	@cd config/manager && $(KUSTOMIZE) edit set image controller=${CONTROLLER_IMG}
+	@echo "🚀 Deploying to cluster..."
+	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+	@echo "🔐 Generating webhook certificates..."
+	@./hack/generate-webhook-certs.sh
+
+.PHONY: deploy-all
+deploy-all: manifests kustomize ## Deploy both controller and webhook to the K8s cluster.
+	@echo "🏗️ Setting image references..."
+	@cd config/manager && $(KUSTOMIZE) edit set image controller=${CONTROLLER_IMG}
+	@cd config/webhook && $(KUSTOMIZE) edit set image webhook=${WEBHOOK_IMG}
+	@echo "🚀 Deploying to cluster..."
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 	@echo "🔐 Generating webhook certificates..."
 	@./hack/generate-webhook-certs.sh
@@ -118,6 +145,10 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+	@echo "🔄 Resetting image references to defaults..."
+	@cd config/manager && $(KUSTOMIZE) edit set image controller=controller:main
+	@cd config/webhook && $(KUSTOMIZE) edit set image webhook=webhook:main
+	@echo "✅ Image references reset successfully"
 
 ##@ Enhanced Deployment
 
@@ -129,19 +160,50 @@ full-deploy: check-img build-and-push deploy-controller wait-ready ## Complete d
 	@echo "📊 Pod Status:"
 	@$(KUBECTL) get pods -n $(CONTROLLER_NAMESPACE) -l control-plane=controller-manager
 
+.PHONY: full-deploy-all
+full-deploy-all: build-and-push-all install deploy-all wait-ready wait-webhook-ready ## Complete deployment workflow for both controller and webhook.
+	@echo "🎉 Full deployment of controller and webhook completed successfully!"
+	@echo "📋 Controller Status:"
+	@$(KUBECTL) get deployment $(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE)
+	@echo "📋 Webhook Status:"
+	@$(KUBECTL) get deployment namespacelabel-webhook-server -n $(CONTROLLER_NAMESPACE)
+	@echo "📊 Pod Status:"
+	@$(KUBECTL) get pods -n $(CONTROLLER_NAMESPACE)
+
+.PHONY: wait-webhook-ready
+wait-webhook-ready: ## Wait for webhook deployment to be ready.
+	@echo "⏳ Waiting for webhook to be ready (timeout: $(DEPLOYMENT_TIMEOUT))..."
+	@$(KUBECTL) wait --for=condition=available deployment/namespacelabel-webhook-server \
+		-n $(CONTROLLER_NAMESPACE) --timeout=$(DEPLOYMENT_TIMEOUT)
+	@echo "✅ Webhook is ready!"
+
 .PHONY: check-img
-check-img: ## Validate that IMG environment variable is set.
-	@if [ -z "$(IMG)" ] || [ "$(IMG)" = "controller:latest" ]; then \
-		echo "❌ Error: Please set IMG environment variable to your image repository"; \
-		echo "💡 Example: export IMG=quay.io/username/namespacelabel:v1.0.0"; \
-		echo "💡 Or run: make full-deploy IMG=your-registry/namespacelabel:tag"; \
+check-img: ## Validate that CONTROLLER_IMG environment variable is set.
+	@if [ -z "$(CONTROLLER_IMG)" ] || [ "$(CONTROLLER_IMG)" = "controller:main" ]; then \
+		echo "❌ Error: Please set CONTROLLER_IMG environment variable to your image repository"; \
+		echo "💡 Example: export CONTROLLER_IMG=quay.io/username/namespacelabel:v1.0.0"; \
+		echo "💡 Or run: make full-deploy CONTROLLER_IMG=your-registry/namespacelabel:tag"; \
 		exit 1; \
 	fi
-	@echo "✅ Using image: $(IMG)"
+	@echo "✅ Using image: $(CONTROLLER_IMG)"
 
 .PHONY: build-and-push
 build-and-push: check-img docker-build docker-push ## Build and push container image.
-	@echo "✅ Image $(IMG) built and pushed successfully"
+	@echo "✅ Image $(CONTROLLER_IMG) built and pushed successfully"
+
+.PHONY: build-and-push-all
+build-and-push-all: check-img check-webhook-img docker-build-all docker-push-all ## Build and push both controller and webhook images.
+	@echo "✅ Both images $(CONTROLLER_IMG) and $(WEBHOOK_IMG) built and pushed successfully"
+
+.PHONY: check-webhook-img
+check-webhook-img: ## Validate that WEBHOOK_IMG environment variable is set.
+	@if [ -z "$(WEBHOOK_IMG)" ] || [ "$(WEBHOOK_IMG)" = "webhook:main" ]; then \
+		echo "❌ Error: Please set WEBHOOK_IMG environment variable to your webhook image repository"; \
+		echo "💡 Example: export WEBHOOK_IMG=quay.io/username/namespacelabel-webhook:v1.0.0"; \
+		echo "💡 Or run: make full-deploy-all CONTROLLER_IMG=your-controller:tag WEBHOOK_IMG=your-webhook:tag"; \
+		exit 1; \
+	fi
+	@echo "✅ Using webhook image: $(WEBHOOK_IMG)"
 
 .PHONY: deploy-controller
 deploy-controller: install deploy ## Install CRDs and deploy controller.
@@ -156,7 +218,7 @@ wait-ready: ## Wait for controller deployment to be ready.
 
 .PHONY: deploy-status
 deploy-status: ## Show detailed deployment status.
-	@echo "📊 Deployment Status for $(IMG):"
+	@echo "📊 Deployment Status for $(CONTROLLER_IMG):"
 	@echo ""
 	@echo "🏗️  Controller Deployment:"
 	@$(KUBECTL) get deployment $(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE) -o wide 2>/dev/null || echo "❌ Controller not deployed"
@@ -180,7 +242,7 @@ deploy-logs-follow: ## Follow controller logs in real-time.
 .PHONY: cleanup
 cleanup: undeploy uninstall-safe ## Complete cleanup: undeploy controller and remove CRDs.
 	@echo "🧹 Cleanup completed"
-	@echo "💡 To redeploy, run: make full-deploy IMG=your-image:tag"
+	@echo "💡 To redeploy, run: make full-deploy CONTROLLER_IMG=your-image:tag"
 
 .PHONY: uninstall-safe
 uninstall-safe: ## Safely uninstall CRDs (ignores not-found errors).

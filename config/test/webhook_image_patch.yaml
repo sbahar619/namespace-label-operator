@@ -1,0 +1,11 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-server
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+      - name: webhook
+        image: quay.io/sbahar/namespacelabel-webhook:dev-cur-v1 
