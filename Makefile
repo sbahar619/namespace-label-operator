@@ -177,10 +177,6 @@ check-controller-img: ## Validate that CONTROLLER_IMG environment variable is se
 	fi
 	@echo "✅ Using image: $(CONTROLLER_IMG)"
 
-.PHONY: build-and-push
-build-and-push: check-controller-img docker-build docker-push ## Build and push container image.
-	@echo "✅ Image $(CONTROLLER_IMG) built and pushed successfully"
-
 .PHONY: build-and-push-all
 build-and-push-all: check-controller-img check-webhook-img docker-build-all docker-push-all ## Build and push both controller and webhook images.
 	@echo "✅ Both images $(CONTROLLER_IMG) and $(WEBHOOK_IMG) built and pushed successfully"
