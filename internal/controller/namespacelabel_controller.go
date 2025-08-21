@@ -64,21 +64,9 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	// Get the target Namespace object (cluster-scoped by name)
+	// Get the target Namespace object to modify its labels
 	var ns corev1.Namespace
 	if err := r.Get(ctx, types.NamespacedName{Name: targetNS}, &ns); err != nil {
-		if apierrors.IsNotFound(err) {
-			// Namespace missing; if CR exists, update its status
-			if exists {
-				message := fmt.Sprintf("Target namespace '%s' does not exist", targetNS)
-				updateStatus(&current, false, "NamespaceNotFound", message, nil, nil)
-				if err := r.Status().Update(ctx, &current); err != nil {
-					l.Error(err, "failed to update status for missing namespace")
-				}
-			}
-			// Requeue to check again later
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
-		}
 		return ctrl.Result{}, err
 	}
 
