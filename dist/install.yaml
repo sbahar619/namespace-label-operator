@@ -182,6 +182,15 @@ metadata:
   name: namespacelabel-controller-manager
   namespace: namespacelabel-system
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespacelabel
+  name: namespacelabel-webhook-server
+  namespace: namespacelabel-system
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -350,6 +359,27 @@ rules:
   - create
 ---
 apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: namespacelabel-webhook-server-role
+rules:
+- apiGroups:
+  - labels.shahaf.com
+  resources:
+  - namespacelabels
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
@@ -398,6 +428,22 @@ subjects:
   name: namespacelabel-controller-manager
   namespace: namespacelabel-system
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespacelabel
+  name: namespacelabel-webhook-server-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: namespacelabel-webhook-server-role
+subjects:
+- kind: ServiceAccount
+  name: namespacelabel-webhook-server
+  namespace: namespacelabel-system
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -431,7 +477,7 @@ spec:
     targetPort: 9443
   selector:
     app.kubernetes.io/name: namespacelabel
-    control-plane: controller-manager
+    control-plane: webhook-server
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -457,12 +503,35 @@ spec:
     spec:
       containers:
       - args:
+        - --secure-listen-address=0.0.0.0:8443
+        - --upstream=http://127.0.0.1:8080/
+        - --logtostderr=true
+        - --v=0
+        image: gcr.io/kubebuilder/kube-rbac-proxy:v0.16.0
+        name: kube-rbac-proxy
+        ports:
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 5m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      - args:
         - --health-probe-bind-address=:8081
         - --metrics-bind-address=127.0.0.1:8080
         - --leader-elect
         command:
         - /manager
-        image: quay.io/sbahar/namespacelabel:dev-v24
+        image: quay.io/sbahar/namespacelabel-controller:main
         livenessProbe:
           httpGet:
             path: /healthz
@@ -470,9 +539,75 @@ spec:
           initialDelaySeconds: 15
           periodSeconds: 20
         name: manager
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: namespacelabel-controller-manager
+      terminationGracePeriodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespacelabel
+    control-plane: webhook-server
+  name: namespacelabel-webhook-server
+  namespace: namespacelabel-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: webhook-server
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: webhook
+      labels:
+        app.kubernetes.io/name: namespacelabel
+        control-plane: webhook-server
+    spec:
+      containers:
+      - args:
+        - --webhook-port=9443
+        - --health-probe-bind-address=:8081
+        - --metrics-bind-address=:8080
+        command:
+        - /webhook
+        image: webhook:main
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: webhook
         ports:
         - containerPort: 9443
           name: webhook-server
+          protocol: TCP
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        - containerPort: 8081
+          name: health
           protocol: TCP
         readinessProbe:
           httpGet:
@@ -496,32 +631,9 @@ spec:
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: webhook-certs
           readOnly: true
-      - args:
-        - --secure-listen-address=0.0.0.0:8443
-        - --upstream=http://127.0.0.1:8080/
-        - --logtostderr=true
-        - --v=0
-        image: gcr.io/kubebuilder/kube-rbac-proxy:v0.16.0
-        name: kube-rbac-proxy
-        ports:
-        - containerPort: 8443
-          name: https
-          protocol: TCP
-        resources:
-          limits:
-            cpu: 500m
-            memory: 128Mi
-          requests:
-            cpu: 5m
-            memory: 64Mi
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
       securityContext:
         runAsNonRoot: true
-      serviceAccountName: namespacelabel-controller-manager
+      serviceAccountName: namespacelabel-webhook-server
       terminationGracePeriodSeconds: 10
       volumes:
       - name: webhook-certs
