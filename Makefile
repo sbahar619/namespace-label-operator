@@ -1,6 +1,6 @@
 # Image URL to use for building/pushing image targets
-CONTROLLER_IMG ?= controller:main
-WEBHOOK_IMG ?= webhook:main
+CONTROLLER_IMG ?= quay.io/sbahar/namespacelabel-controller:main
+WEBHOOK_IMG ?= quay.io/sbahar/namespacelabel-webhook:main
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary
 ENVTEST_K8S_VERSION = 1.29.0
@@ -152,8 +152,8 @@ deploy-controller-only: manifests kustomize ## Deploy only the controller (witho
 
 .PHONY: check-controller-img
 check-controller-img: ## Validate that CONTROLLER_IMG environment variable is set.
-	@if [ -z "$(CONTROLLER_IMG)" ] || [ "$(CONTROLLER_IMG)" = "controller:main" ]; then \
-		echo "❌ Error: Please set CONTROLLER_IMG environment variable to your image repository"; \
+	@if [ -z "$(CONTROLLER_IMG)" ]; then \
+		echo "❌ Error: CONTROLLER_IMG environment variable is not set"; \
 		echo "💡 Example: export CONTROLLER_IMG=quay.io/username/namespacelabel:v1.0.0"; \
 		echo "💡 Or run: make full-deploy CONTROLLER_IMG=your-registry/namespacelabel:tag"; \
 		exit 1; \
@@ -162,8 +162,8 @@ check-controller-img: ## Validate that CONTROLLER_IMG environment variable is se
 
 .PHONY: check-webhook-img
 check-webhook-img: ## Validate that WEBHOOK_IMG environment variable is set.
-	@if [ -z "$(WEBHOOK_IMG)" ] || [ "$(WEBHOOK_IMG)" = "webhook:main" ]; then \
-		echo "❌ Error: Please set WEBHOOK_IMG environment variable to your webhook image repository"; \
+	@if [ -z "$(WEBHOOK_IMG)" ]; then \
+		echo "❌ Error: WEBHOOK_IMG environment variable is not set"; \
 		echo "💡 Example: export WEBHOOK_IMG=quay.io/username/namespacelabel-webhook:v1.0.0"; \
 		echo "💡 Or run: make full-deploy CONTROLLER_IMG=your-controller:tag WEBHOOK_IMG=your-webhook:tag"; \
 		exit 1; \
