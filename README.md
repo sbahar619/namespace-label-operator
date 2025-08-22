@@ -11,8 +11,11 @@ Kubernetes operator for managing namespace labels with protection patterns.
 kubectl apply -f https://github.com/dana-team/namespacelabel/releases/latest/download/install.yaml
 ./hack/generate-webhook-certs.sh
 
-# Or deploy with custom image
-make deploy IMG=your-registry/namespacelabel:tag
+# Or deploy with default images
+make deploy
+
+# Or deploy with custom images
+make deploy CONTROLLER_IMG=your-registry/namespacelabel-controller:tag WEBHOOK_IMG=your-registry/namespacelabel-webhook:tag
 ```
 
 ### Create a NamespaceLabel
@@ -95,27 +98,40 @@ make fmt vet
 
 ### Container Images
 ```bash
-# Build container image
-make docker-build IMG=my-registry/namespacelabel:v1.0.0
+# Build container images (uses default image names)
+make docker-build
 
-# Push to registry
-make docker-push IMG=my-registry/namespacelabel:v1.0.0
+# Build with custom image names
+make docker-build CONTROLLER_IMG=my-registry/namespacelabel-controller:v1.0.0 WEBHOOK_IMG=my-registry/namespacelabel-webhook:v1.0.0
 
-# Build installer manifest
+# Push to registry (uses default image names)
+make docker-push
+
+# Push with custom image names  
+make docker-push CONTROLLER_IMG=my-registry/namespacelabel-controller:v1.0.0 WEBHOOK_IMG=my-registry/namespacelabel-webhook:v1.0.0
+
+# Build installer manifest (uses default images)
 make build-installer
+
+# Build installer with custom images
+make build-installer CONTROLLER_IMG=my-registry/namespacelabel-controller:v1.0.0 WEBHOOK_IMG=my-registry/namespacelabel-webhook:v1.0.0
 ```
 
 ## 🚢 Deployment
 
 ### Development Deployment
 ```bash
-# Full workflow: build + push + deploy + wait
-make full-deploy IMG=my-registry/namespacelabel:v1.0.0
+# Full workflow: build + push + deploy + wait (uses default images)
+make full-deploy
+
+# Full workflow with custom images
+make full-deploy CONTROLLER_IMG=my-registry/namespacelabel-controller:v1.0.0 WEBHOOK_IMG=my-registry/namespacelabel-webhook:v1.0.0
 
 # Step-by-step
-make install                                    # Install CRDs
-make deploy IMG=your-registry/namespacelabel:tag # Deploy controller
-make deploy-status                              # Check status
+make install                                                    # Install CRDs
+make deploy                                                     # Deploy with default images
+make deploy CONTROLLER_IMG=your-registry/controller:tag WEBHOOK_IMG=your-registry/webhook:tag  # Deploy with custom images
+make deploy-status                                              # Check status
 ```
 
 ### Cleanup
