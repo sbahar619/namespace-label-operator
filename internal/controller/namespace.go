@@ -10,28 +10,14 @@ import (
 )
 
 // applyLabelsToNamespace applies desired labels and removes stale ones
-func (r *NamespaceLabelReconciler) applyLabelsToNamespace(ns *corev1.Namespace, actuallyDesired, prevApplied map[string]string) (bool, error) {
-	changed := false
-
-	// Remove stale operator-managed keys
-	for k, prevVal := range prevApplied {
-		if _, stillWanted := actuallyDesired[k]; !stillWanted {
-			if cur, ok := ns.Labels[k]; ok && cur == prevVal {
-				delete(ns.Labels, k)
-				changed = true
-			}
-		}
+func (r *NamespaceLabelReconciler) applyLabelsToNamespace(ns *corev1.Namespace, desired, prevApplied map[string]string) bool {
+	if ns.Labels == nil {
+		ns.Labels = make(map[string]string)
 	}
 
-	// Apply/overwrite allowed keys only
-	for k, v := range actuallyDesired {
-		if cur, ok := ns.Labels[k]; !ok || cur != v {
-			ns.Labels[k] = v
-			changed = true
-		}
-	}
-
-	return changed, nil
+	changed := removeStaleLabels(ns.Labels, desired, prevApplied)
+	changed = applyDesiredLabels(ns.Labels, desired) || changed
+	return changed
 }
 
 // updateTrackingAnnotation updates the annotation that tracks what we've applied

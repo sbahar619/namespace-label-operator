@@ -55,3 +55,29 @@ func boolToCond(b bool) metav1.ConditionStatus {
 	}
 	return metav1.ConditionFalse
 }
+
+// removeStaleLabels removes labels that were previously applied by this operator but are no longer desired
+func removeStaleLabels(current, desired, prevApplied map[string]string) bool {
+	changed := false
+	for key, prevVal := range prevApplied {
+		if _, stillWanted := desired[key]; !stillWanted {
+			if cur, exists := current[key]; exists && cur == prevVal {
+				delete(current, key)
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+// applyDesiredLabels sets or updates labels to their desired values
+func applyDesiredLabels(current, desired map[string]string) bool {
+	changed := false
+	for key, val := range desired {
+		if current[key] != val {
+			current[key] = val
+			changed = true
+		}
+	}
+	return changed
+}

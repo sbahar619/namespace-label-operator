@@ -64,10 +64,7 @@ func (r *NamespaceLabelReconciler) processNamespaceLabels(ctx context.Context, c
 	}
 
 	// Apply labels to namespace
-	changed, err := r.applyLabelsToNamespace(ns, protectionResult.AllowedLabels, prevApplied)
-	if err != nil {
-		return nil, nil, err
-	}
+	changed := r.applyLabelsToNamespace(ns, protectionResult.AllowedLabels, prevApplied)
 
 	if changed {
 		if err := r.Update(ctx, ns); err != nil {
