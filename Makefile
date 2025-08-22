@@ -106,8 +106,12 @@ docker-push-all: docker-push webhook-docker-push ## Push both controller and web
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
 	mkdir -p dist
+	@echo "🏗️ Setting image references for installer..."
 	@cd config/manager && $(KUSTOMIZE) edit set image controller=${CONTROLLER_IMG}
+	@cd config/webhook && $(KUSTOMIZE) edit set image webhook=${WEBHOOK_IMG}
+	@echo "📦 Building complete installer..."
 	$(KUSTOMIZE) build config/default > dist/install.yaml
+	@echo "✅ Complete installer generated at dist/install.yaml"
 
 ##@ Deployment
 
@@ -145,8 +149,9 @@ undeploy: kustomize ## Undeploy the complete operator from the K8s cluster speci
 deploy-controller-only: manifests kustomize ## Deploy only the controller (without webhook) to the K8s cluster.
 	@echo "🏗️ Setting controller image reference..."
 	@cd config/manager && $(KUSTOMIZE) edit set image controller=${CONTROLLER_IMG}
-	@echo "🚀 Deploying controller to cluster..."
-	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+	@echo "🚀 Deploying controller-only to cluster..."
+	$(KUSTOMIZE) build config/manager | $(KUBECTL) apply -f -
+	@echo "ℹ️  Note: This deploys only the controller. Use 'make deploy' for complete installation with webhook."
 
 ##@ Validation
 
