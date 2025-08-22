@@ -2,8 +2,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"time"
 
 	labelsv1alpha1 "github.com/sbahar619/namespace-label-operator/api/v1alpha1"
@@ -14,60 +12,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
-
-// processNamespaceLabels handles the core label processing logic
-func (r *NamespaceLabelReconciler) processNamespaceLabels(ctx context.Context, cr *labelsv1alpha1.NamespaceLabel, ns *corev1.Namespace) (*ProtectionResult, map[string]string, error) {
-	l := log.FromContext(ctx)
-
-	// Since we enforce singleton pattern, use the current CR directly
-	desired := cr.Spec.Labels
-
-	// Load what we previously applied (from annotation) to compute removals safely
-	prevApplied := readAppliedAnnotation(ns)
-
-	// Get protection configuration from the current CR
-	allProtectionPatterns := cr.Spec.ProtectedLabelPatterns
-	protectionMode := cr.Spec.ProtectionMode
-
-	// Apply protection logic
-	if ns.Labels == nil {
-		ns.Labels = map[string]string{}
-	}
-
-	protectionResult := applyProtectionLogic(
-		desired,
-		ns.Labels,
-		allProtectionPatterns,
-		protectionMode,
-	)
-
-	// If protection mode is "fail" and we hit protected labels, fail the reconciliation
-	if protectionResult.ShouldFail {
-		message := fmt.Sprintf("Protected label conflicts: %s", strings.Join(protectionResult.Warnings, "; "))
-		updateStatus(cr, false, "ProtectedLabelConflict", message, protectionResult.ProtectedSkipped, nil)
-		if err := r.Status().Update(ctx, cr); err != nil {
-			l.Error(err, "failed to update status for protection conflict")
-		}
-		return &protectionResult, desired, fmt.Errorf("protected label conflict: %s", strings.Join(protectionResult.Warnings, "; "))
-	}
-
-	// Apply labels to namespace
-	changed := r.applyLabelsToNamespace(ns, protectionResult.AllowedLabels, prevApplied)
-
-	if changed {
-		if err := r.Update(ctx, ns); err != nil {
-			return nil, nil, err
-		}
-	}
-
-	// Update tracking annotation
-	if err := writeAppliedAnnotation(ctx, r.Client, ns, protectionResult.AllowedLabels); err != nil {
-		// Log error but don't fail reconciliation since labels were applied successfully
-		l.Error(err, "failed to write applied annotation")
-	}
-
-	return &protectionResult, desired, nil
-}
 
 // handleDeletion handles the deletion of a NamespaceLabel CR
 func (r *NamespaceLabelReconciler) handleDeletion(ctx context.Context, cr *labelsv1alpha1.NamespaceLabel) (ctrl.Result, error) {

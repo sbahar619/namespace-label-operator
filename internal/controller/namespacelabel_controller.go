@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	labelsv1alpha1 "github.com/sbahar619/namespace-label-operator/api/v1alpha1"
@@ -73,18 +74,53 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Process namespace labels with protection logic
-	protectionResult, desired, err := r.processNamespaceLabels(ctx, &current, ns)
-	if err != nil {
-		if protectionResult != nil {
-			// This means we had a protection conflict - requeue with delay
-			return ctrl.Result{RequeueAfter: time.Minute * 5}, err
+	desired := current.Spec.Labels
+	prevApplied := readAppliedAnnotation(ns)
+
+	// Get protection configuration from the current CR
+	allProtectionPatterns := current.Spec.ProtectedLabelPatterns
+	protectionMode := current.Spec.ProtectionMode
+
+	// Apply protection logic
+	if ns.Labels == nil {
+		ns.Labels = map[string]string{}
+	}
+
+	protectionResult := applyProtectionLogic(
+		desired,
+		ns.Labels,
+		allProtectionPatterns,
+		protectionMode,
+	)
+
+	// If protection mode is "fail" and we hit protected labels, fail the reconciliation
+	if protectionResult.ShouldFail {
+		message := fmt.Sprintf("Protected label conflicts: %s", strings.Join(protectionResult.Warnings, "; "))
+		updateStatus(&current, false, "ProtectedLabelConflict", message, protectionResult.ProtectedSkipped, nil)
+		if err := r.Status().Update(ctx, &current); err != nil {
+			l.Error(err, "failed to update status for protection conflict")
 		}
-		return ctrl.Result{}, err
+		return ctrl.Result{RequeueAfter: time.Minute * 5}, fmt.Errorf("protected label conflict: %s", strings.Join(protectionResult.Warnings, "; "))
+	}
+
+	// Apply labels to namespace
+	changed := r.applyLabelsToNamespace(ns, protectionResult.AllowedLabels, prevApplied)
+
+	if changed {
+		if err := r.Update(ctx, ns); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Update tracking annotation
+	if err := writeAppliedAnnotation(ctx, r.Client, ns, protectionResult.AllowedLabels); err != nil {
+		// Log error but don't fail reconciliation since labels were applied successfully
+		l.Error(err, "failed to write applied annotation")
 	}
 
 	// Update status if the CR still exists
 	if exists {
-		if err := r.updateSuccessStatus(ctx, &current, desired, protectionResult.AllowedLabels, *protectionResult, targetNS); err != nil {
+		if err := r.updateSuccessStatus(ctx, &current, desired, protectionResult.AllowedLabels, protectionResult, targetNS); err != nil {
 			l.Error(err, "failed to update CR status")
 		}
 	}
