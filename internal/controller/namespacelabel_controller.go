@@ -120,7 +120,29 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Update status if the CR still exists
 	if exists {
-		if err := r.updateSuccessStatus(ctx, &current, desired, protectionResult.AllowedLabels, protectionResult, targetNS); err != nil {
+		labelCount := len(desired)
+		appliedCount := len(protectionResult.AllowedLabels)
+		skippedCount := len(protectionResult.ProtectedSkipped)
+
+		var message string
+		if skippedCount > 0 {
+			message = fmt.Sprintf("Applied %d labels to namespace '%s', skipped %d protected labels (%v)",
+				appliedCount, targetNS, skippedCount, protectionResult.ProtectedSkipped)
+		} else {
+			message = fmt.Sprintf("Applied %d labels to namespace '%s'",
+				appliedCount, targetNS)
+		}
+
+		appliedKeys := make([]string, 0, len(protectionResult.AllowedLabels))
+		for k := range protectionResult.AllowedLabels {
+			appliedKeys = append(appliedKeys, k)
+		}
+
+		l.Info("NamespaceLabel successfully processed",
+			"namespace", current.Namespace, "labelsApplied", appliedCount, "labelsRequested", labelCount, "protectedSkipped", skippedCount)
+
+		updateStatus(&current, true, "Synced", message, protectionResult.ProtectedSkipped, appliedKeys)
+		if err := r.Status().Update(ctx, &current); err != nil {
 			l.Error(err, "failed to update CR status")
 		}
 	}

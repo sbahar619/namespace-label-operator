@@ -38,15 +38,8 @@ func (r *NamespaceLabelReconciler) handleDeletion(ctx context.Context, cr *label
 		ns.Labels = map[string]string{}
 	}
 
-	changed := false
-	for k := range cr.Spec.Labels {
-		if prevVal, wasApplied := prevApplied[k]; wasApplied {
-			if cur, exists := ns.Labels[k]; exists && cur == prevVal {
-				delete(ns.Labels, k)
-				changed = true
-			}
-		}
-	}
+	// Remove all previously applied labels by passing empty desired map
+	changed := removeStaleLabels(ns.Labels, map[string]string{}, prevApplied)
 
 	if changed {
 		if err := r.Update(ctx, &ns); err != nil {
