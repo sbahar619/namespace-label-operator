@@ -73,7 +73,7 @@ func (r *NamespaceLabelReconciler) processNamespaceLabels(ctx context.Context, c
 	}
 
 	// Update tracking annotation
-	if err := r.updateTrackingAnnotation(ctx, l, cr, ns, protectionResult.AllowedLabels); err != nil {
+	if err := writeAppliedAnnotation(ctx, r.Client, ns, protectionResult.AllowedLabels); err != nil {
 		// Log error but don't fail reconciliation since labels were applied successfully
 		l.Error(err, "failed to write applied annotation")
 	}
