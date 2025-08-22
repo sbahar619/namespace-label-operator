@@ -10,6 +10,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -53,12 +54,12 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Add finalizer if it doesn't exist and CR exists
 	if exists {
-		shouldContinue, err := r.ensureFinalizerExists(ctx, &current)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if !shouldContinue {
-			return ctrl.Result{}, nil
+		if !controllerutil.ContainsFinalizer(&current, FinalizerName) {
+			controllerutil.AddFinalizer(&current, FinalizerName)
+			if err := r.Update(ctx, &current); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil // Stop reconciliation after adding finalizer
 		}
 	}
 

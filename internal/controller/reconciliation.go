@@ -15,18 +15,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// ensureFinalizerExists adds finalizer if it doesn't exist and returns true if reconciliation should continue
-func (r *NamespaceLabelReconciler) ensureFinalizerExists(ctx context.Context, cr *labelsv1alpha1.NamespaceLabel) (bool, error) {
-	if !controllerutil.ContainsFinalizer(cr, FinalizerName) {
-		controllerutil.AddFinalizer(cr, FinalizerName)
-		if err := r.Update(ctx, cr); err != nil {
-			return false, err
-		}
-		return false, nil // Stop reconciliation after adding finalizer
-	}
-	return true, nil // Continue reconciliation
-}
-
 // processNamespaceLabels handles the core label processing logic
 func (r *NamespaceLabelReconciler) processNamespaceLabels(ctx context.Context, cr *labelsv1alpha1.NamespaceLabel, ns *corev1.Namespace) (*ProtectionResult, map[string]string, error) {
 	l := log.FromContext(ctx)
