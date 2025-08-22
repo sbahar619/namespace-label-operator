@@ -156,3 +156,59 @@ func (r *NamespaceLabelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&labelsv1alpha1.NamespaceLabel{}).
 		Complete(r)
 }
+
+// handleDeletion handles the deletion of a NamespaceLabel CR
+func (r *NamespaceLabelReconciler) handleDeletion(ctx context.Context, cr *labelsv1alpha1.NamespaceLabel) (ctrl.Result, error) {
+	l := log.FromContext(ctx)
+
+	// Target namespace is always the same as the CR's namespace
+	targetNS := cr.Namespace
+
+	// Get the target namespace
+	var ns corev1.Namespace
+	if err := r.Get(ctx, types.NamespacedName{Name: targetNS}, &ns); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Namespace is gone, nothing to clean up
+			controllerutil.RemoveFinalizer(cr, FinalizerName)
+			return ctrl.Result{}, r.Update(ctx, cr)
+		}
+		return ctrl.Result{}, err
+	}
+
+	// Remove all labels that were applied by this operator
+	prevApplied := readAppliedAnnotation(&ns)
+
+	if ns.Labels == nil {
+		ns.Labels = map[string]string{}
+	}
+
+	// Remove all previously applied labels by passing empty desired map
+	changed := removeStaleLabels(ns.Labels, map[string]string{}, prevApplied)
+
+	if changed {
+		if err := r.Update(ctx, &ns); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Clear applied annotation since no labels remain
+	if err := writeAppliedAnnotation(ctx, r.Client, &ns, map[string]string{}); err != nil {
+		l.Error(err, "failed to update applied annotation during deletion")
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Remove finalizer
+	controllerutil.RemoveFinalizer(cr, FinalizerName)
+	return ctrl.Result{}, r.Update(ctx, cr)
+}
+
+// applyLabelsToNamespace applies desired labels and removes stale ones
+func (r *NamespaceLabelReconciler) applyLabelsToNamespace(ns *corev1.Namespace, desired, prevApplied map[string]string) bool {
+	if ns.Labels == nil {
+		ns.Labels = make(map[string]string)
+	}
+
+	changed := removeStaleLabels(ns.Labels, desired, prevApplied)
+	changed = applyDesiredLabels(ns.Labels, desired) || changed
+	return changed
+}
