@@ -21,17 +21,11 @@ import (
 // +kubebuilder:rbac:groups=labels.shahaf.com,resources=namespacelabels/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;update;patch
 
-// getTargetNamespace retrieves the namespace that should be modified
-func (r *NamespaceLabelReconciler) getTargetNamespace(ctx context.Context, targetNS string) (*corev1.Namespace, error) {
-	if targetNS == "" {
-		return nil, fmt.Errorf("empty namespace name")
-	}
-
-	var ns corev1.Namespace
-	if err := r.Get(ctx, types.NamespacedName{Name: targetNS}, &ns); err != nil {
-		return nil, err
-	}
-	return &ns, nil
+func (r *NamespaceLabelReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Create the controller without unnecessary namespace watch
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&labelsv1alpha1.NamespaceLabel{}).
+		Complete(r)
 }
 
 func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -150,13 +144,6 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-func (r *NamespaceLabelReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// Create the controller without unnecessary namespace watch
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&labelsv1alpha1.NamespaceLabel{}).
-		Complete(r)
-}
-
 // handleDeletion handles the deletion of a NamespaceLabel CR
 func (r *NamespaceLabelReconciler) handleDeletion(ctx context.Context, cr *labelsv1alpha1.NamespaceLabel) (ctrl.Result, error) {
 	l := log.FromContext(ctx)
@@ -200,6 +187,19 @@ func (r *NamespaceLabelReconciler) handleDeletion(ctx context.Context, cr *label
 	// Remove finalizer
 	controllerutil.RemoveFinalizer(cr, FinalizerName)
 	return ctrl.Result{}, r.Update(ctx, cr)
+}
+
+// getTargetNamespace retrieves the namespace that should be modified
+func (r *NamespaceLabelReconciler) getTargetNamespace(ctx context.Context, targetNS string) (*corev1.Namespace, error) {
+	if targetNS == "" {
+		return nil, fmt.Errorf("empty namespace name")
+	}
+
+	var ns corev1.Namespace
+	if err := r.Get(ctx, types.NamespacedName{Name: targetNS}, &ns); err != nil {
+		return nil, err
+	}
+	return &ns, nil
 }
 
 // applyLabelsToNamespace applies desired labels and removes stale ones
