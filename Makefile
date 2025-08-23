@@ -150,32 +150,10 @@ deploy-controller-only: manifests kustomize ## Deploy only the controller (witho
 	$(KUSTOMIZE) build config/manager | $(KUBECTL) apply -f -
 	@echo "ℹ️  Note: This deploys only the controller. Use 'make deploy' for complete installation with webhook."
 
-##@ Validation
-
-.PHONY: check-controller-img
-check-controller-img: ## Validate that CONTROLLER_IMG environment variable is set.
-	@if [ -z "$(CONTROLLER_IMG)" ]; then \
-		echo "❌ Error: CONTROLLER_IMG environment variable is not set"; \
-		echo "💡 Example: export CONTROLLER_IMG=quay.io/username/namespacelabel:v1.0.0"; \
-		echo "💡 Or run: make full-deploy CONTROLLER_IMG=your-registry/namespacelabel:tag"; \
-		exit 1; \
-	fi
-	@echo "✅ Using image: $(CONTROLLER_IMG)"
-
-.PHONY: check-webhook-img
-check-webhook-img: ## Validate that WEBHOOK_IMG environment variable is set.
-	@if [ -z "$(WEBHOOK_IMG)" ]; then \
-		echo "❌ Error: WEBHOOK_IMG environment variable is not set"; \
-		echo "💡 Example: export WEBHOOK_IMG=quay.io/username/namespacelabel-webhook:v1.0.0"; \
-		echo "💡 Or run: make full-deploy CONTROLLER_IMG=your-controller:tag WEBHOOK_IMG=your-webhook:tag"; \
-		exit 1; \
-	fi
-	@echo "✅ Using webhook image: $(WEBHOOK_IMG)"
-
 ##@ Workflows
 
 .PHONY: build-and-push-all
-build-and-push-all: check-controller-img check-webhook-img docker-build-all docker-push-all ## Build and push both controller and webhook images.
+build-and-push-all: docker-build-all docker-push-all ## Build and push both controller and webhook images.
 	@echo "✅ Both images $(CONTROLLER_IMG) and $(WEBHOOK_IMG) built and pushed successfully"
 
 .PHONY: full-deploy
