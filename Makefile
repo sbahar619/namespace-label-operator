@@ -142,13 +142,6 @@ undeploy: kustomize ## Undeploy the complete operator from the K8s cluster speci
 	@cd config/webhook && $(KUSTOMIZE) edit set image webhook=webhook:main
 	@echo "✅ Image references reset successfully"
 
-.PHONY: deploy-controller-only
-deploy-controller-only: manifests kustomize ## Deploy only the controller (without webhook) to the K8s cluster.
-	@echo "🏗️ Setting controller image reference..."
-	@cd config/manager && $(KUSTOMIZE) edit set image controller=${CONTROLLER_IMG}
-	@echo "🚀 Deploying controller-only to cluster..."
-	$(KUSTOMIZE) build config/manager | $(KUBECTL) apply -f -
-	@echo "ℹ️  Note: This deploys only the controller. Use 'make deploy' for complete installation with webhook."
 
 ##@ Workflows
 
