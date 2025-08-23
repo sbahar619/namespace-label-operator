@@ -80,7 +80,7 @@ build: generate ## Build manager binary.
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${CONTROLLER_IMG} .
+	$(CONTAINER_TOOL) build -t ${CONTROLLER_IMG} -f cmd/Dockerfile .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -88,7 +88,7 @@ docker-push: ## Push docker image with the manager.
 
 .PHONY: webhook-docker-build
 webhook-docker-build: ## Build docker image with the webhook.
-	$(CONTAINER_TOOL) build -t ${WEBHOOK_IMG} -f Dockerfile.webhook .
+	$(CONTAINER_TOOL) build -t ${WEBHOOK_IMG} -f cmd/webhook/Dockerfile .
 
 .PHONY: webhook-docker-push
 webhook-docker-push: ## Push docker image with the webhook.
