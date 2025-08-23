@@ -18,6 +18,11 @@ test/
 examples/
 .golangci.yml
 
+# Go test files
+*_test.go
+**/*_test.go
+**/suite_test.go
+
 # IDE and editor files
 .vscode/
 .idea/
