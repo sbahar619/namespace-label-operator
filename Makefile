@@ -69,13 +69,13 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes.
 	$(GOLANGCI_LINT) run --fix
 
 .PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
+run: generate ## Run a controller from your host.
 	go run ./cmd/main.go
 
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
+build: generate ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
 .PHONY: docker-build
@@ -101,7 +101,7 @@ docker-build-all: docker-build webhook-docker-build ## Build both controller and
 docker-push-all: docker-push webhook-docker-push ## Push both controller and webhook docker images.
 
 .PHONY: build-installer
-build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
+build-installer: manifests kustomize ## Generate a consolidated YAML with CRDs and deployment.
 	mkdir -p dist
 	@echo "🏗️ Setting image references for installer..."
 	@cd config/manager && $(KUSTOMIZE) edit set image controller=${CONTROLLER_IMG}
