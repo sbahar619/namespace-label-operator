@@ -57,56 +57,64 @@ var _ = Describe("NamespaceLabelReconciler", func() {
 		ctx = context.TODO()
 	})
 
+	// Helper functions to reduce code duplication
+	createNamespace := func(name string, labels map[string]string, annotations map[string]string) *corev1.Namespace {
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        name,
+				Labels:      labels,
+				Annotations: annotations,
+			},
+		}
+		Expect(fakeClient.Create(ctx, ns)).To(Succeed())
+		return ns
+	}
+
+	createCR := func(name, namespace string, labels map[string]string, finalizers []string, spec labelsv1alpha1.NamespaceLabelSpec) *labelsv1alpha1.NamespaceLabel {
+		cr := &labelsv1alpha1.NamespaceLabel{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       name,
+				Namespace:  namespace,
+				Finalizers: finalizers,
+			},
+			Spec: spec,
+		}
+		Expect(fakeClient.Create(ctx, cr)).To(Succeed())
+		return cr
+	}
+
+	reconcileRequest := func(name, namespace string) reconcile.Request {
+		return reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      name,
+				Namespace: namespace,
+			},
+		}
+	}
+
+	expectFinalizerRemoved := func(cr *labelsv1alpha1.NamespaceLabel) {
+		var updatedCR labelsv1alpha1.NamespaceLabel
+		Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(cr), &updatedCR)).To(Succeed())
+		Expect(updatedCR.Finalizers).NotTo(ContainElement(FinalizerName))
+	}
+
 	Describe("Reconcile", func() {
 		It("should handle non-existent CR gracefully", func() {
-			// Create the namespace first since controller tries to get it
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-ns",
-				},
-			}
-			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
+			createNamespace("test-ns", nil, nil)
 
-			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      "labels",
-					Namespace: "test-ns",
-				},
-			}
-
-			result, err := reconciler.Reconcile(ctx, req)
+			result, err := reconciler.Reconcile(ctx, reconcileRequest("labels", "test-ns"))
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(reconcile.Result{}))
 		})
 
 		It("should add finalizer to CR without finalizer", func() {
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-ns",
-				},
-			}
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: "test-ns",
-				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{"app": "test"},
-				},
-			}
+			createNamespace("test-ns", nil, nil)
+			cr := createCR("labels", "test-ns", nil, nil, labelsv1alpha1.NamespaceLabelSpec{
+				Labels: map[string]string{"app": "test"},
+			})
 
-			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
-			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
-
-			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      "labels",
-					Namespace: "test-ns",
-				},
-			}
-
-			result, err := reconciler.Reconcile(ctx, req)
+			result, err := reconciler.Reconcile(ctx, reconcileRequest("labels", "test-ns"))
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(reconcile.Result{}))
@@ -118,36 +126,15 @@ var _ = Describe("NamespaceLabelReconciler", func() {
 		})
 
 		It("should apply labels to namespace successfully", func() {
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-ns",
+			ns := createNamespace("test-ns", nil, nil)
+			createCR("labels", "test-ns", nil, []string{FinalizerName}, labelsv1alpha1.NamespaceLabelSpec{
+				Labels: map[string]string{
+					"app": "test",
+					"env": "prod",
 				},
-			}
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "labels",
-					Namespace:  "test-ns",
-					Finalizers: []string{FinalizerName},
-				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"app": "test",
-						"env": "prod",
-					},
-				},
-			}
+			})
 
-			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
-			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
-
-			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      "labels",
-					Namespace: "test-ns",
-				},
-			}
-
-			result, err := reconciler.Reconcile(ctx, req)
+			result, err := reconciler.Reconcile(ctx, reconcileRequest("labels", "test-ns"))
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(reconcile.Result{}))
@@ -157,50 +144,25 @@ var _ = Describe("NamespaceLabelReconciler", func() {
 			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(ns), &updatedNS)).To(Succeed())
 			Expect(updatedNS.Labels).To(HaveKeyWithValue("app", "test"))
 			Expect(updatedNS.Labels).To(HaveKeyWithValue("env", "prod"))
-
-			// Verify annotation was written
 			Expect(updatedNS.Annotations).To(HaveKey(appliedAnnoKey))
 		})
 
 		It("should handle label protection in fail mode", func() {
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-ns",
-					Labels: map[string]string{
-						"kubernetes.io/managed-by": "existing-operator",
-					},
+			ns := createNamespace("test-ns", map[string]string{
+				"kubernetes.io/managed-by": "existing-operator",
+			}, nil)
+			createCR("labels", "test-ns", nil, []string{FinalizerName}, labelsv1alpha1.NamespaceLabelSpec{
+				Labels: map[string]string{
+					"app":                      "test",
+					"kubernetes.io/managed-by": "my-operator", // This should be protected
 				},
-			}
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "labels",
-					Namespace:  "test-ns",
-					Finalizers: []string{FinalizerName},
-				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"app":                      "test",
-						"kubernetes.io/managed-by": "my-operator", // This should be protected
-					},
-					ProtectedLabelPatterns: []string{"kubernetes.io/*"},
-					ProtectionMode:         labelsv1alpha1.ProtectionModeFail,
-				},
-			}
+				ProtectedLabelPatterns: []string{"kubernetes.io/*"},
+				ProtectionMode:         labelsv1alpha1.ProtectionModeFail,
+			})
 
-			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
-			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
-
-			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      "labels",
-					Namespace: "test-ns",
-				},
-			}
-
-			result, err := reconciler.Reconcile(ctx, req)
+			result, err := reconciler.Reconcile(ctx, reconcileRequest("labels", "test-ns"))
 
 			Expect(err).To(HaveOccurred())
-			// Protection mode fail returns a requeue after 5 minutes
 			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
 
 			// Verify protected label was not changed
@@ -210,41 +172,18 @@ var _ = Describe("NamespaceLabelReconciler", func() {
 		})
 
 		It("should handle label updates when spec changes", func() {
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-ns",
-					Labels: map[string]string{
-						"old-label": "old-value",
-					},
-					Annotations: map[string]string{
-						appliedAnnoKey: `{"old-label":"old-value"}`,
-					},
+			ns := createNamespace("test-ns", map[string]string{
+				"old-label": "old-value",
+			}, map[string]string{
+				appliedAnnoKey: `{"old-label":"old-value"}`,
+			})
+			createCR("labels", "test-ns", nil, []string{FinalizerName}, labelsv1alpha1.NamespaceLabelSpec{
+				Labels: map[string]string{
+					"new-label": "new-value", // Changed from old-label to new-label
 				},
-			}
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "labels",
-					Namespace:  "test-ns",
-					Finalizers: []string{FinalizerName},
-				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"new-label": "new-value", // Changed from old-label to new-label
-					},
-				},
-			}
+			})
 
-			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
-			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
-
-			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      "labels",
-					Namespace: "test-ns",
-				},
-			}
-
-			result, err := reconciler.Reconcile(ctx, req)
+			result, err := reconciler.Reconcile(ctx, reconcileRequest("labels", "test-ns"))
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(reconcile.Result{}))
@@ -252,24 +191,19 @@ var _ = Describe("NamespaceLabelReconciler", func() {
 			// Verify old label was removed and new label was applied
 			var updatedNS corev1.Namespace
 			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(ns), &updatedNS)).To(Succeed())
-			Expect(updatedNS.Labels).NotTo(HaveKey("old-label"))                    // Should be removed
-			Expect(updatedNS.Labels).To(HaveKeyWithValue("new-label", "new-value")) // Should be added
+			Expect(updatedNS.Labels).NotTo(HaveKey("old-label"))
+			Expect(updatedNS.Labels).To(HaveKeyWithValue("new-label", "new-value"))
 
 			// Verify annotation was updated
-			result2 := readAppliedAnnotation(&updatedNS)
-			Expect(result2).To(HaveKeyWithValue("new-label", "new-value"))
-			Expect(result2).NotTo(HaveKey("old-label"))
+			appliedLabels := readAppliedAnnotation(&updatedNS)
+			Expect(appliedLabels).To(HaveKeyWithValue("new-label", "new-value"))
+			Expect(appliedLabels).NotTo(HaveKey("old-label"))
 		})
 	})
 
 	Describe("getTargetNamespace", func() {
 		It("should get target namespace successfully", func() {
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-ns",
-				},
-			}
-			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
+			createNamespace("test-ns", nil, nil)
 
 			result, err := reconciler.getTargetNamespace(ctx, "test-ns")
 
@@ -319,185 +253,61 @@ var _ = Describe("NamespaceLabelReconciler", func() {
 		Expect(reconciler.Scheme).NotTo(BeNil())
 	})
 
-	Context("HandleDeletion Method", func() {
-		var scheme *runtime.Scheme
-		var fakeClient client.WithWatch
-		var reconciler *NamespaceLabelReconciler
+	Describe("handleDeletion", func() {
+		// Test data for table-driven approach
+		DescribeTable("should handle different deletion scenarios",
+			func(setupNamespace func() *corev1.Namespace, crNamespace string, shouldFindNS bool, expectedLabelsAfter map[string]string) {
+				// Setup namespace if provided
+				var ns *corev1.Namespace
+				if setupNamespace != nil {
+					ns = setupNamespace()
+				}
 
-		BeforeEach(func() {
-			scheme = runtime.NewScheme()
-			Expect(corev1.AddToScheme(scheme)).To(Succeed())
-			Expect(labelsv1alpha1.AddToScheme(scheme)).To(Succeed())
+				// Create CR with finalizer
+				cr := createCR("test-cr", crNamespace, nil, []string{FinalizerName}, labelsv1alpha1.NamespaceLabelSpec{})
 
-			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
-			reconciler = &NamespaceLabelReconciler{
-				Client: fakeClient,
-				Scheme: scheme,
-			}
-		})
+				// Call handleDeletion
+				result, err := reconciler.handleDeletion(ctx, cr)
 
-		It("should handle namespace not found during deletion", func() {
-			// Create CR with finalizer in namespace that doesn't exist
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-cr",
-					Namespace:  "nonexistent-ns",
-					Finalizers: []string{FinalizerName},
-				},
-			}
-			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
+				// Should always succeed and not requeue
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.Requeue).To(BeFalse())
+				Expect(result.RequeueAfter).To(BeZero())
 
-			// Call handleDeletion - namespace doesn't exist
-			result, err := reconciler.handleDeletion(ctx, cr)
+				// Verify finalizer is removed
+				expectFinalizerRemoved(cr)
 
-			// Should succeed and not requeue
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.Requeue).To(BeFalse())
-			Expect(result.RequeueAfter).To(BeZero())
+				// Verify namespace state if it should exist
+				if shouldFindNS && ns != nil {
+					var updatedNS corev1.Namespace
+					Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(ns), &updatedNS)).To(Succeed())
 
-			// Finalizer should be removed from CR
-			var updatedCR labelsv1alpha1.NamespaceLabel
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-cr", Namespace: "nonexistent-ns"}, &updatedCR)).To(Succeed())
-			Expect(updatedCR.Finalizers).NotTo(ContainElement(FinalizerName))
-		})
+					// Check expected labels
+					for k, v := range expectedLabelsAfter {
+						Expect(updatedNS.Labels).To(HaveKeyWithValue(k, v))
+					}
 
-		It("should remove applied labels and finalizer when namespace exists", func() {
-			// Create namespace with some labels and applied annotation
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-ns",
-					Labels: map[string]string{
-						"applied-by-operator": "value1",
-						"another-applied":     "value2",
-						"existing":            "keep-me", // Not applied by operator
-					},
-					Annotations: map[string]string{
-						appliedAnnoKey: `{"applied-by-operator":"value1","another-applied":"value2"}`,
-					},
-				},
-			}
-			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
-
-			// Create CR with finalizer
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-cr",
-					Namespace:  "test-ns",
-					Finalizers: []string{FinalizerName},
-				},
-			}
-			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
-
-			// Call handleDeletion
-			result, err := reconciler.handleDeletion(ctx, cr)
-
-			// Should succeed
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.Requeue).To(BeFalse())
-
-			// Check that applied labels were removed but existing labels remain
-			var updatedNS corev1.Namespace
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-ns"}, &updatedNS)).To(Succeed())
-			Expect(updatedNS.Labels).NotTo(HaveKey("applied-by-operator"))
-			Expect(updatedNS.Labels).NotTo(HaveKey("another-applied"))
-			Expect(updatedNS.Labels).To(HaveKeyWithValue("existing", "keep-me"))
-
-			// Applied annotation should be cleared (empty map)
-			Expect(updatedNS.Annotations).To(HaveKeyWithValue(appliedAnnoKey, "{}"))
-
-			// Finalizer should be removed from CR
-			var updatedCR labelsv1alpha1.NamespaceLabel
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-cr", Namespace: "test-ns"}, &updatedCR)).To(Succeed())
-			Expect(updatedCR.Finalizers).NotTo(ContainElement(FinalizerName))
-		})
-
-		It("should handle namespace with no applied labels", func() {
-			// Create namespace with no applied annotation
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-ns",
-					Labels: map[string]string{
-						"existing": "label",
-					},
-				},
-			}
-			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
-
-			// Create CR with finalizer
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-cr",
-					Namespace:  "test-ns",
-					Finalizers: []string{FinalizerName},
-				},
-			}
-			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
-
-			// Call handleDeletion
-			result, err := reconciler.handleDeletion(ctx, cr)
-
-			// Should succeed
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.Requeue).To(BeFalse())
-
-			// Existing labels should remain untouched
-			var updatedNS corev1.Namespace
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-ns"}, &updatedNS)).To(Succeed())
-			Expect(updatedNS.Labels).To(HaveKeyWithValue("existing", "label"))
-
-			// Applied annotation should be set to empty map
-			Expect(updatedNS.Annotations).To(HaveKeyWithValue(appliedAnnoKey, "{}"))
-
-			// Finalizer should be removed
-			var updatedCR labelsv1alpha1.NamespaceLabel
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-cr", Namespace: "test-ns"}, &updatedCR)).To(Succeed())
-			Expect(updatedCR.Finalizers).NotTo(ContainElement(FinalizerName))
-		})
-
-		It("should handle namespace with nil labels map and applied labels to remove", func() {
-			// Create namespace with nil labels but annotation indicating applied labels
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-ns",
-					Labels: map[string]string{
-						"applied-label": "value", // This was applied by operator
-					},
-					Annotations: map[string]string{
-						appliedAnnoKey: `{"applied-label":"value"}`, // Consistent with actual labels
-					},
-				},
-			}
-			Expect(fakeClient.Create(ctx, ns)).To(Succeed())
-
-			// Create CR with finalizer
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "test-cr",
-					Namespace:  "test-ns",
-					Finalizers: []string{FinalizerName},
-				},
-			}
-			Expect(fakeClient.Create(ctx, cr)).To(Succeed())
-
-			// Call handleDeletion
-			result, err := reconciler.handleDeletion(ctx, cr)
-
-			// Should succeed
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.Requeue).To(BeFalse())
-
-			// Applied label should be removed, namespace updated
-			var updatedNS corev1.Namespace
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-ns"}, &updatedNS)).To(Succeed())
-			Expect(updatedNS.Labels).NotTo(HaveKey("applied-label"))
-
-			// Applied annotation should be cleared
-			Expect(updatedNS.Annotations).To(HaveKeyWithValue(appliedAnnoKey, "{}"))
-
-			// Finalizer should be removed
-			var updatedCR labelsv1alpha1.NamespaceLabel
-			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-cr", Namespace: "test-ns"}, &updatedCR)).To(Succeed())
-			Expect(updatedCR.Finalizers).NotTo(ContainElement(FinalizerName))
-		})
+					// Applied annotation should be cleared
+					Expect(updatedNS.Annotations).To(HaveKeyWithValue(appliedAnnoKey, "{}"))
+				}
+			},
+			Entry("namespace not found", nil, "nonexistent-ns", false, nil),
+			Entry("namespace with no applied labels",
+				func() *corev1.Namespace {
+					return createNamespace("test-ns", map[string]string{"existing": "label"}, nil)
+				}, "test-ns", true, map[string]string{"existing": "label"}),
+			Entry("namespace with applied labels to remove",
+				func() *corev1.Namespace {
+					return createNamespace("test-ns",
+						map[string]string{
+							"applied-by-operator": "value1",
+							"another-applied":     "value2",
+							"existing":            "keep-me",
+						},
+						map[string]string{
+							appliedAnnoKey: `{"applied-by-operator":"value1","another-applied":"value2"}`,
+						})
+				}, "test-ns", true, map[string]string{"existing": "keep-me"}),
+		)
 	})
 })
