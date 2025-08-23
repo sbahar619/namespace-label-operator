@@ -157,7 +157,7 @@ build-and-push-all: docker-build-all docker-push-all ## Build and push both cont
 	@echo "✅ Both images $(CONTROLLER_IMG) and $(WEBHOOK_IMG) built and pushed successfully"
 
 .PHONY: full-deploy
-full-deploy: build-and-push-all install deploy wait-ready wait-webhook-ready ## Complete deployment workflow: build, push, deploy, and wait for readiness.
+full-deploy: build-and-push-all deploy wait-ready wait-webhook-ready ## Complete deployment workflow: build, push, deploy, and wait for readiness.
 	@echo "🎉 Full deployment completed successfully!"
 	@echo "📋 Controller Status:"
 	@$(KUBECTL) get deployment $(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE)
