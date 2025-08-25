@@ -30,7 +30,7 @@ SHELL = /usr/bin/env bash -o pipefail
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-##@ Development
+##@ Code Generation
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
@@ -40,6 +40,8 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
+##@ Code Quality
+
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -47,6 +49,12 @@ fmt: ## Run go fmt against code.
 .PHONY: vet
 vet: ## Run go vet against code.
 	go vet ./...
+
+.PHONY: lint
+lint: golangci-lint ## Run golangci-lint linter.
+	$(GOLANGCI_LINT) run
+
+##@ Testing
 
 .PHONY: test
 test: manifests generate fmt vet envtest ginkgo ## Run unit tests.
@@ -66,30 +74,24 @@ test-e2e: ginkgo ## Run E2E tests in parallel. Use GINKGO_FOCUS=label to run spe
 test-e2e-debug: ## Run E2E tests sequentially for debugging. Use GINKGO_FOCUS=label to run specific tests.
 	go test ./test/e2e/ -v -timeout 15m --ginkgo.v --ginkgo.fail-on-pending $(if $(GINKGO_FOCUS),--ginkgo.label-filter="$(GINKGO_FOCUS)")
 
-.PHONY: lint
-lint: golangci-lint ## Run golangci-lint linter.
-	$(GOLANGCI_LINT) run
-
-.PHONY: lint-fix
-lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes.
-	$(GOLANGCI_LINT) run --fix
-
-.PHONY: run
-run: generate ## Run a controller from your host.
-	go run ./cmd/main.go
-
-##@ Build
+##@ Development
 
 .PHONY: build
 build: generate ## Build manager binary.
-	go build -o bin/manager cmd/main.go
+	go build -o bin/manager cmd/controller/main.go
 
-.PHONY: docker-build
-docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${CONTROLLER_IMG} -f cmd/Dockerfile .
+.PHONY: run
+run: generate ## Run a controller from your host.
+	go run ./cmd/controller/main.go
 
-.PHONY: docker-push
-docker-push: ## Push docker image with the manager.
+##@ Build
+
+.PHONY: controller-docker-build
+controller-docker-build: ## Build docker image with the controller.
+	$(CONTAINER_TOOL) build -t ${CONTROLLER_IMG} -f cmd/controller/Dockerfile .
+
+.PHONY: controller-docker-push
+controller-docker-push: ## Push docker image with the controller.
 	$(CONTAINER_TOOL) push ${CONTROLLER_IMG}
 
 .PHONY: webhook-docker-build
@@ -100,14 +102,8 @@ webhook-docker-build: ## Build docker image with the webhook.
 webhook-docker-push: ## Push docker image with the webhook.
 	$(CONTAINER_TOOL) push ${WEBHOOK_IMG}
 
-.PHONY: docker-build-all
-docker-build-all: docker-build webhook-docker-build ## Build both controller and webhook docker images.
-
-.PHONY: docker-push-all
-docker-push-all: docker-push webhook-docker-push ## Push both controller and webhook docker images.
-
-.PHONY: build-installer
-build-installer: manifests kustomize ## Generate a consolidated YAML with CRDs and deployment.
+.PHONY: generate-installer
+generate-installer: manifests kustomize ## Generate a consolidated YAML with CRDs and deployment.
 	mkdir -p dist
 	@echo "🏗️ Setting image references for installer..."
 	@cd config/manager && $(KUSTOMIZE) edit set image controller=${CONTROLLER_IMG}
@@ -148,38 +144,7 @@ undeploy: kustomize ## Undeploy the complete operator from the K8s cluster speci
 	@cd config/webhook && $(KUSTOMIZE) edit set image webhook=webhook:main
 	@echo "✅ Image references reset successfully"
 
-
-##@ Workflows
-
-.PHONY: build-and-push-all
-build-and-push-all: docker-build-all docker-push-all ## Build and push both controller and webhook images.
-	@echo "✅ Both images $(CONTROLLER_IMG) and $(WEBHOOK_IMG) built and pushed successfully"
-
-.PHONY: full-deploy
-full-deploy: build-and-push-all deploy wait-ready wait-webhook-ready ## Complete deployment workflow: build, push, deploy, and wait for readiness.
-	@echo "🎉 Full deployment completed successfully!"
-	@echo "📋 Controller Status:"
-	@$(KUBECTL) get deployment $(CONTROLLER_DEPLOYMENT) -n $(CONTROLLER_NAMESPACE)
-	@echo "📋 Webhook Status:"
-	@$(KUBECTL) get deployment namespacelabel-webhook-server -n $(CONTROLLER_NAMESPACE)
-	@echo "📊 Pod Status:"
-	@$(KUBECTL) get pods -n $(CONTROLLER_NAMESPACE)
-
 ##@ Monitoring
-
-.PHONY: wait-ready
-wait-ready: ## Wait for controller deployment to be ready.
-	@echo "⏳ Waiting for controller to be ready (timeout: $(DEPLOYMENT_TIMEOUT))..."
-	@$(KUBECTL) wait --for=condition=available deployment/$(CONTROLLER_DEPLOYMENT) \
-		-n $(CONTROLLER_NAMESPACE) --timeout=$(DEPLOYMENT_TIMEOUT)
-	@echo "✅ Controller is ready!"
-
-.PHONY: wait-webhook-ready
-wait-webhook-ready: ## Wait for webhook deployment to be ready.
-	@echo "⏳ Waiting for webhook to be ready (timeout: $(DEPLOYMENT_TIMEOUT))..."
-	@$(KUBECTL) wait --for=condition=available deployment/namespacelabel-webhook-server \
-		-n $(CONTROLLER_NAMESPACE) --timeout=$(DEPLOYMENT_TIMEOUT)
-	@echo "✅ Webhook is ready!"
 
 .PHONY: deploy-status
 deploy-status: ## Show detailed deployment status.
