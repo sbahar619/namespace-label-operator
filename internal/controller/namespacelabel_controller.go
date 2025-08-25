@@ -39,12 +39,9 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	// Note: Singleton pattern validation is now handled by the admission webhook
-	// No need to validate name or check for multiple CRs here
-
 	// Handle deletion
 	if exists && current.DeletionTimestamp != nil {
-		return r.handleDeletion(ctx, &current)
+		return r.finalize(ctx, &current)
 	}
 
 	// Add finalizer if it doesn't exist and CR exists
@@ -144,43 +141,33 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-// handleDeletion handles the deletion of a NamespaceLabel CR
-func (r *NamespaceLabelReconciler) handleDeletion(ctx context.Context, cr *labelsv1alpha1.NamespaceLabel) (ctrl.Result, error) {
+// finalize cleans up namespace labels and removes the finalizer
+func (r *NamespaceLabelReconciler) finalize(ctx context.Context, cr *labelsv1alpha1.NamespaceLabel) (ctrl.Result, error) {
 	l := log.FromContext(ctx)
 
-	// Target namespace is always the same as the CR's namespace
-	targetNS := cr.Namespace
-
-	// Get the target namespace
-	var ns corev1.Namespace
-	if err := r.Get(ctx, types.NamespacedName{Name: targetNS}, &ns); err != nil {
+	ns, err := r.getTargetNamespace(ctx, cr.Namespace)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
-			// Namespace is gone, nothing to clean up
+			// Namespace is gone - just remove finalizer
 			controllerutil.RemoveFinalizer(cr, FinalizerName)
 			return ctrl.Result{}, r.Update(ctx, cr)
 		}
 		return ctrl.Result{}, err
 	}
 
-	// Remove all labels that were applied by this operator
-	prevApplied := readAppliedAnnotation(&ns)
-
-	if ns.Labels == nil {
-		ns.Labels = map[string]string{}
-	}
-
-	// Remove all previously applied labels by passing empty desired map
-	changed := removeStaleLabels(ns.Labels, map[string]string{}, prevApplied)
-
+	// Remove all applied labels
+	prevApplied := readAppliedAnnotation(ns)
+	changed := r.applyLabelsToNamespace(ns, map[string]string{}, prevApplied)
 	if changed {
-		if err := r.Update(ctx, &ns); err != nil {
-			return ctrl.Result{}, err
+		if err := r.Update(ctx, ns); err != nil {
+			l.Error(err, "failed to remove applied labels")
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 	}
 
-	// Clear applied annotation since no labels remain
-	if err := writeAppliedAnnotation(ctx, r.Client, &ns, map[string]string{}); err != nil {
-		l.Error(err, "failed to update applied annotation during deletion")
+	// Clear applied annotation
+	if err := writeAppliedAnnotation(ctx, r.Client, ns, map[string]string{}); err != nil {
+		l.Error(err, "failed to clear applied annotation")
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 

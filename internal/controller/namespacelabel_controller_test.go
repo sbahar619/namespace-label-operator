@@ -253,7 +253,7 @@ var _ = Describe("NamespaceLabelReconciler", Label("controller"), func() {
 		Expect(reconciler.Scheme).NotTo(BeNil())
 	})
 
-	Describe("handleDeletion", func() {
+	Describe("finalize", func() {
 		// Test data for table-driven approach
 		DescribeTable("should handle different deletion scenarios",
 			func(setupNamespace func() *corev1.Namespace, crNamespace string, shouldFindNS bool, expectedLabelsAfter map[string]string) {
@@ -266,8 +266,8 @@ var _ = Describe("NamespaceLabelReconciler", Label("controller"), func() {
 				// Create CR with finalizer
 				cr := createCR("test-cr", crNamespace, nil, []string{FinalizerName}, labelsv1alpha1.NamespaceLabelSpec{})
 
-				// Call handleDeletion
-				result, err := reconciler.handleDeletion(ctx, cr)
+				// Call finalize
+				result, err := reconciler.finalize(ctx, cr)
 
 				// Should always succeed and not requeue
 				Expect(err).NotTo(HaveOccurred())
