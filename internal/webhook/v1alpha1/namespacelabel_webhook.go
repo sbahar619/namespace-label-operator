@@ -46,13 +46,13 @@ func SetupNamespaceLabelWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
+// NOTE: Webhook validates create and update operations only. Deletion cleanup is handled by the controller's finalizer.
 // NOTE: The 'path' attribute must follow a specific pattern and should not be modified directly here.
 // Modifying the path for an invalid path can cause API server errors; failing to locate the webhook.
 // +kubebuilder:webhook:path=/validate-labels-shahaf-com-v1alpha1-namespacelabel,mutating=false,failurePolicy=fail,sideEffects=None,groups=labels.shahaf.com,resources=namespacelabels,verbs=create;update,versions=v1alpha1,name=vnamespacelabel-v1alpha1.kb.io,admissionReviewVersions=v1
 
 // NamespaceLabelCustomValidator struct is responsible for validating the NamespaceLabel resource
-// when it is created, updated, or deleted.
+// when it is created or updated.
 //
 // NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
 // as this struct is used only for temporary operations and does not need to be deeply copied.
@@ -116,13 +116,12 @@ func (v *NamespaceLabelCustomValidator) ValidateUpdate(ctx context.Context, oldO
 	return nil, nil
 }
 
+// ValidateDelete implements webhook.CustomValidator interface but performs no validation.
+// Deletion cleanup is handled by the controller's finalizer logic.
 func (v *NamespaceLabelCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	namespacelabel, ok := obj.(*labelsv1alpha1.NamespaceLabel)
+	_, ok := obj.(*labelsv1alpha1.NamespaceLabel)
 	if !ok {
 		return nil, fmt.Errorf("expected a NamespaceLabel object but got %T", obj)
 	}
-	namespacelabellog.Info("Validation for NamespaceLabel upon deletion", "name", namespacelabel.GetName(), "namespace", namespacelabel.GetNamespace())
-
-	// No validation needed for deletion - let the controller handle cleanup
 	return nil, nil
 }
