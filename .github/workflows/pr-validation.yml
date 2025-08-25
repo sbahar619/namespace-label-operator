@@ -179,11 +179,6 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Load images into kind cluster
-      run: |
-        kind load docker-image controller:latest --name namespacelabel-e2e
-        kind load docker-image webhook:latest --name namespacelabel-e2e
-
     - name: Deploy to cluster
       run: |
         
