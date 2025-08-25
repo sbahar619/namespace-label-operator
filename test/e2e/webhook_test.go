@@ -150,12 +150,12 @@ var _ = Describe("NamespaceLabel Webhook Tests", Label("webhook"), func() {
 			errorMsg := err.Error()
 			webhookError := "only one NamespaceLabel resource is allowed per namespace"
 			k8sError := "already exists"
-			
+
 			Expect(errorMsg).To(Or(
 				ContainSubstring(webhookError), // Webhook validation message
 				ContainSubstring(k8sError),     // Standard Kubernetes API error
 			))
-			
+
 			if !strings.Contains(errorMsg, webhookError) && strings.Contains(errorMsg, k8sError) {
 				By("Standard Kubernetes API rejection (webhook not running) - this is expected behavior")
 			}

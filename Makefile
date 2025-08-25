@@ -57,13 +57,15 @@ lint: golangci-lint ## Run golangci-lint linter.
 ##@ Testing
 
 .PHONY: test
-test: manifests generate fmt vet envtest ginkgo ## Run unit tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GINKGO) -v --procs=16 --compilers=16 --show-node-events --coverprofile cover.out ./internal/... ./api/...
+test: manifests generate fmt vet envtest ginkgo ## Run unit tests. Use GINKGO_FOCUS=label to run specific tests.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GINKGO) -v --procs=16 --compilers=16 --show-node-events --coverprofile cover.out $(if $(GINKGO_FOCUS),--label-filter="$(GINKGO_FOCUS)") ./internal/... ./api/...
 
 # GINKGO_FOCUS can be set to run specific tests by label
 # Examples:
-#   make test-e2e GINKGO_FOCUS=controller # Run only controller tests  
-#   make test-e2e GINKGO_FOCUS=webhook   # Run only webhook tests
+#   make test GINKGO_FOCUS=controller     # Run only controller unit tests
+#   make test GINKGO_FOCUS=webhook        # Run only webhook unit tests
+#   make test-e2e GINKGO_FOCUS=controller # Run only controller e2e tests  
+#   make test-e2e GINKGO_FOCUS=webhook    # Run only webhook e2e tests
 GINKGO_FOCUS ?=
 
 .PHONY: test-e2e

@@ -36,7 +36,7 @@ import (
 
 // Tests for functions in namespacelabel_controller.go
 
-var _ = Describe("NamespaceLabelReconciler", func() {
+var _ = Describe("NamespaceLabelReconciler", Label("controller"), func() {
 	var (
 		reconciler *NamespaceLabelReconciler
 		fakeClient client.Client

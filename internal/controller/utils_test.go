@@ -33,7 +33,7 @@ import (
 
 // Tests for functions in utils.go
 
-var _ = Describe("readAppliedAnnotation", func() {
+var _ = Describe("readAppliedAnnotation", Label("controller"), func() {
 	DescribeTable("annotation parsing scenarios",
 		func(annotations map[string]string, expectedResult map[string]string) {
 			ns := &corev1.Namespace{

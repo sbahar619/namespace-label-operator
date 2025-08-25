@@ -29,7 +29,7 @@ import (
 	labelsv1alpha1 "github.com/sbahar619/namespace-label-operator/api/v1alpha1"
 )
 
-var _ = Describe("NamespaceLabel Webhook", func() {
+var _ = Describe("NamespaceLabel Webhook", Label("webhook"), func() {
 	var (
 		ctx       context.Context
 		validator *NamespaceLabelCustomValidator
