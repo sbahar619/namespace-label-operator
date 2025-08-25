@@ -171,8 +171,6 @@ jobs:
 
     - name: Deploy to cluster
       run: |
-        # Install CRDs first
-        make install
         
         # Deploy controller and webhook with correct image references
         make deploy CONTROLLER_IMG=controller:latest WEBHOOK_IMG=webhook:latest
@@ -204,8 +202,8 @@ jobs:
         }'
         
         # Wait for deployments to be ready
-        kubectl wait --for=condition=Available deployment/namespacelabel-controller-manager -n namespacelabel-system --timeout=30s
-        kubectl wait --for=condition=Available deployment/namespacelabel-webhook -n namespacelabel-system --timeout=30s
+        kubectl wait --for=condition=Available deployment/namespacelabel-controller-manager -n namespacelabel-system --timeout=300s
+        kubectl wait --for=condition=Available deployment/namespacelabel-webhook -n namespacelabel-system --timeout=300s
         
         # Verify deployment status
         kubectl get pods -n namespacelabel-system
