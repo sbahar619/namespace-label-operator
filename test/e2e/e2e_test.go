@@ -43,6 +43,53 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 		testNS    string
 	)
 
+	// CROptions provides options for creating NamespaceLabel CRs
+	type CROptions struct {
+		Name                   string
+		Labels                 map[string]string
+		ProtectedLabelPatterns []string
+		ProtectionMode         string
+	}
+
+	// newNamespaceLabel builds a NamespaceLabel CR object with the given options
+	// Returns the CR object without creating it in Kubernetes
+	newNamespaceLabel := func(opts CROptions) *labelsv1alpha1.NamespaceLabel {
+		// Default name to "labels" if not specified
+		name := opts.Name
+		if name == "" {
+			name = "labels"
+		}
+
+		// Create the CR
+		cr := &labelsv1alpha1.NamespaceLabel{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: testNS,
+			},
+			Spec: labelsv1alpha1.NamespaceLabelSpec{
+				Labels: opts.Labels,
+			},
+		}
+
+		// Add protection settings if specified
+		if len(opts.ProtectedLabelPatterns) > 0 {
+			cr.Spec.ProtectedLabelPatterns = opts.ProtectedLabelPatterns
+		}
+		if opts.ProtectionMode != "" {
+			cr.Spec.ProtectionMode = labelsv1alpha1.ProtectionMode(opts.ProtectionMode)
+		}
+
+		return cr
+	}
+
+	// createNamespaceLabel creates a NamespaceLabel CR in Kubernetes and expects it to succeed
+	// Returns the created CR object for further operations (like deletion)
+	createNamespaceLabel := func(opts CROptions) *labelsv1alpha1.NamespaceLabel {
+		cr := newNamespaceLabel(opts)
+		Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+		return cr
+	}
+
 	// Helper function to clean up NamespaceLabel CRs reliably
 	cleanupNamespaceLabels := func(namespace string) {
 		crList := &labelsv1alpha1.NamespaceLabelList{}
@@ -145,20 +192,12 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 	Context("Basic NamespaceLabel Operations", func() {
 		It("should create a NamespaceLabel CR successfully", func() {
 			By("Creating a NamespaceLabel CR")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
+			createNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"environment": "test",
+					"team":        "platform",
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"environment": "test",
-						"team":        "platform",
-					},
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+			})
 
 			By("Verifying the CR was created")
 			Eventually(func() error {
@@ -172,17 +211,12 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 
 		It("should reject invalid CR names (when webhook is running)", func() {
 			By("Creating a NamespaceLabel CR with invalid name")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "invalid-name",
-					Namespace: testNS,
+			cr := newNamespaceLabel(CROptions{
+				Name: "invalid-name",
+				Labels: map[string]string{
+					"test": "value",
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"test": "value",
-					},
-				},
-			}
+			})
 
 			By("Checking if webhook validation occurs")
 			err := k8sClient.Create(ctx, cr)
@@ -211,20 +245,12 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 	Context("Namespace Label Application", func() {
 		It("should apply labels to the namespace (if controller is running)", func() {
 			By("Creating a valid NamespaceLabel CR")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
+			createNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"environment": "test",
+					"managed-by":  "namespacelabel-operator",
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"environment": "test",
-						"managed-by":  "namespacelabel-operator",
-					},
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+			})
 
 			By("Checking if labels are applied to namespace")
 			Eventually(func() map[string]string {
@@ -249,19 +275,11 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 	Context("CR Deletion", func() {
 		It("should delete NamespaceLabel CRs successfully", func() {
 			By("Creating a NamespaceLabel CR")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
+			cr := createNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"test": "value",
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"test": "value",
-					},
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+			})
 
 			By("Deleting the CR")
 			Expect(k8sClient.Delete(ctx, cr)).To(Succeed())
@@ -290,22 +308,14 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
 
 			By("Creating a NamespaceLabel CR with protection patterns")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
+			createNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"environment":              "test",
+					"kubernetes.io/managed-by": "namespacelabel-operator", // This should be skipped
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"environment":              "test",
-						"kubernetes.io/managed-by": "namespacelabel-operator", // This should be skipped
-					},
-					ProtectedLabelPatterns: []string{"kubernetes.io/*"},
-					ProtectionMode:         "skip",
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+				ProtectedLabelPatterns: []string{"kubernetes.io/*"},
+				ProtectionMode:         "skip",
+			})
 
 			By("Verifying the environment label was applied but protected label was skipped")
 			Eventually(func() map[string]string {
@@ -359,23 +369,15 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
 
 			By("Creating a NamespaceLabel CR attempting to override the protected label")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
+			createNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"environment":          "production",   // This should be applied
+					"system.io/managed-by": "hacker-value", // This should be blocked by protection
+					"tier":                 "critical",     // This should be applied
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"environment":          "production",   // This should be applied
-						"system.io/managed-by": "hacker-value", // This should be blocked by protection
-						"tier":                 "critical",     // This should be applied
-					},
-					ProtectedLabelPatterns: []string{"system.io/*"},
-					ProtectionMode:         "warn",
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+				ProtectedLabelPatterns: []string{"system.io/*"},
+				ProtectionMode:         "warn",
+			})
 
 			By("Triggering multiple rapid reconciliations by updating the CR")
 			for i := 0; i < 5; i++ {
@@ -464,22 +466,14 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
 
 			By("Creating a NamespaceLabel CR with fail protection mode")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
+			createNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"environment":              "test",
+					"kubernetes.io/managed-by": "operator", // This should cause failure
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"environment":              "test",
-						"kubernetes.io/managed-by": "operator", // This should cause failure
-					},
-					ProtectedLabelPatterns: []string{"kubernetes.io/*"},
-					ProtectionMode:         "fail",
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+				ProtectedLabelPatterns: []string{"kubernetes.io/*"},
+				ProtectionMode:         "fail",
+			})
 
 			By("Verifying the CR gets a failure status")
 			Eventually(func() bool {
@@ -523,22 +517,14 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
 
 			By("Creating a NamespaceLabel CR with warn protection mode")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
+			createNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"environment":        "production",
+					"istio.io/injection": "disabled", // This should be skipped with warning
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"environment":        "production",
-						"istio.io/injection": "disabled", // This should be skipped with warning
-					},
-					ProtectedLabelPatterns: []string{"istio.io/*"},
-					ProtectionMode:         "warn",
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+				ProtectedLabelPatterns: []string{"istio.io/*"},
+				ProtectionMode:         "warn",
+			})
 
 			By("Verifying non-protected labels are applied")
 			Eventually(func() string {
@@ -578,31 +564,19 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 	Context("Singleton Enforcement", func() {
 		It("should prevent multiple NamespaceLabel CRs in the same namespace (when webhook is running)", func() {
 			By("Creating the first valid NamespaceLabel CR")
-			cr1 := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
+			createNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"environment": "production",
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"environment": "production",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, cr1)).To(Succeed())
+			})
 
 			By("Attempting to create a second NamespaceLabel CR with invalid name")
-			cr2 := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "other-labels",
-					Namespace: testNS,
+			cr2 := newNamespaceLabel(CROptions{
+				Name: "other-labels",
+				Labels: map[string]string{
+					"team": "platform",
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"team": "platform",
-					},
-				},
-			}
+			})
 
 			By("Checking if webhook validation occurs")
 			err := k8sClient.Create(ctx, cr2)
@@ -629,31 +603,18 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 
 		It("should prevent creation of second CR with valid name when one already exists", func() {
 			By("Creating the first valid NamespaceLabel CR")
-			cr1 := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
+			createNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"environment": "production",
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"environment": "production",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, cr1)).To(Succeed())
+			})
 
 			By("Attempting to create a second NamespaceLabel CR with the same valid name")
-			cr2 := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels", // Same name as the first CR
-					Namespace: testNS,
+			cr2 := newNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"team": "platform",
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"team": "platform",
-					},
-				},
-			}
+			})
 
 			By("Attempting to create the duplicate CR")
 			err := k8sClient.Create(ctx, cr2)
@@ -679,19 +640,12 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 	Context("Label Updates and Removal", func() {
 		It("should update namespace labels when CR is modified", func() {
 			By("Creating a NamespaceLabel CR")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
+			createNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"environment": "dev",
+					"version":     "v1",
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"environment": "dev",
-						"version":     "v1",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+			})
 
 			By("Waiting for labels to be applied")
 			Eventually(func() map[string]string {
@@ -737,19 +691,12 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 
 		It("should clean up all labels when CR is deleted", func() {
 			By("Creating a NamespaceLabel CR")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
+			cr := createNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"cleanup-test":     "true",
+					"operator-managed": "namespacelabel",
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"cleanup-test":     "true",
-						"operator-managed": "namespacelabel",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+			})
 
 			By("Waiting for labels to be applied")
 			Eventually(func() map[string]string {
@@ -794,22 +741,15 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
 
 			By("Creating a NamespaceLabel CR with mixed protected and non-protected labels")
-			cr := &labelsv1alpha1.NamespaceLabel{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labels",
-					Namespace: testNS,
+			createNamespaceLabel(CROptions{
+				Labels: map[string]string{
+					"environment":                  "test",     // Should be applied
+					"team":                         "platform", // Should be applied
+					"app.kubernetes.io/managed-by": "operator", // Should be skipped
 				},
-				Spec: labelsv1alpha1.NamespaceLabelSpec{
-					Labels: map[string]string{
-						"environment":                  "test",     // Should be applied
-						"team":                         "platform", // Should be applied
-						"app.kubernetes.io/managed-by": "operator", // Should be skipped
-					},
-					ProtectedLabelPatterns: []string{"app.kubernetes.io/*"},
-					ProtectionMode:         "skip",
-				},
-			}
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+				ProtectedLabelPatterns: []string{"app.kubernetes.io/*"},
+				ProtectionMode:         "skip",
+			})
 
 			By("Verifying the status accurately reflects applied and skipped labels")
 			Eventually(func() bool {
