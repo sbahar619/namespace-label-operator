@@ -19,10 +19,7 @@ package v1alpha1
 import (
 	"context"
 	"fmt"
-	"path/filepath"
-	"strings"
 
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	labelsv1alpha1 "github.com/sbahar619/namespace-label-operator/api/v1alpha1"
@@ -65,66 +62,4 @@ func (v *NamespaceLabelCustomValidator) validateSingleton(ctx context.Context, n
 	}
 
 	return nil
-}
-
-// validateSpec validates the NamespaceLabel specification
-func (v *NamespaceLabelCustomValidator) validateSpec(nl *labelsv1alpha1.NamespaceLabel) error {
-	// Validate label keys and values
-	if err := v.validateLabels(nl.Spec.Labels); err != nil {
-		return err
-	}
-
-	// Validate protection patterns
-	if err := v.validateProtectionPatterns(nl.Spec.ProtectedLabelPatterns); err != nil {
-		return err
-	}
-
-	// Validate protection mode
-	if err := v.validateProtectionMode(nl.Spec.ProtectionMode); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// validateLabels validates that all label keys and values are valid Kubernetes labels
-func (v *NamespaceLabelCustomValidator) validateLabels(labels map[string]string) error {
-	for key, value := range labels {
-		// Validate label key
-		if errs := validation.IsQualifiedName(key); len(errs) > 0 {
-			return fmt.Errorf("invalid label key '%s': %s", key, strings.Join(errs, ", "))
-		}
-
-		// Validate label value
-		if errs := validation.IsValidLabelValue(value); len(errs) > 0 {
-			return fmt.Errorf("invalid label value '%s' for key '%s': %s", value, key, strings.Join(errs, ", "))
-		}
-	}
-	return nil
-}
-
-// validateProtectionPatterns validates that protection patterns are valid glob patterns
-func (v *NamespaceLabelCustomValidator) validateProtectionPatterns(patterns []string) error {
-	for _, pattern := range patterns {
-		if pattern == "" {
-			return fmt.Errorf("protection pattern cannot be empty")
-		}
-
-		// Test if the pattern is a valid glob pattern by trying to match against a test string
-		_, err := filepath.Match(pattern, "test.example.com/key")
-		if err != nil {
-			return fmt.Errorf("invalid protection pattern '%s': %w", pattern, err)
-		}
-	}
-	return nil
-}
-
-// validateProtectionMode validates that the protection mode is valid
-func (v *NamespaceLabelCustomValidator) validateProtectionMode(mode labelsv1alpha1.ProtectionMode) error {
-	switch mode {
-	case labelsv1alpha1.ProtectionModeSkip, labelsv1alpha1.ProtectionModeWarn, labelsv1alpha1.ProtectionModeFail, "":
-		return nil
-	default:
-		return fmt.Errorf("invalid protection mode '%s': must be one of 'skip', 'warn', or 'fail'", mode)
-	}
 }

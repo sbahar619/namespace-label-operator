@@ -79,10 +79,6 @@ func (v *NamespaceLabelCustomValidator) ValidateCreate(ctx context.Context, obj 
 		return nil, err
 	}
 
-	if err := v.validateSpec(namespacelabel); err != nil {
-		return nil, err
-	}
-
 	return nil, nil
 }
 
@@ -106,10 +102,6 @@ func (v *NamespaceLabelCustomValidator) ValidateUpdate(ctx context.Context, oldO
 
 	// Validate singleton (only one NamespaceLabel per namespace)
 	if err := v.validateSingleton(ctx, namespacelabel, oldNamespacelabel); err != nil {
-		return nil, err
-	}
-
-	if err := v.validateSpec(namespacelabel); err != nil {
 		return nil, err
 	}
 
