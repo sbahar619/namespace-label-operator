@@ -31,7 +31,6 @@ func (r *NamespaceLabelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	l := log.FromContext(ctx)
 
-	// Fetch the CR if it still exists
 	var current labelsv1alpha1.NamespaceLabel
 	err := r.Get(ctx, req.NamespacedName, &current)
 	exists := err == nil
@@ -58,7 +57,6 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Target namespace is always the same as the CR's namespace for multi-tenant security
 	targetNS := req.Namespace
 
-	// Get the target Namespace object to modify its labels
 	ns, err := r.getTargetNamespace(ctx, targetNS)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -68,7 +66,6 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	desired := current.Spec.Labels
 	prevApplied := readAppliedAnnotation(ns)
 
-	// Get protection configuration from the current CR
 	allProtectionPatterns := current.Spec.ProtectedLabelPatterns
 	protectionMode := current.Spec.ProtectionMode
 
@@ -94,7 +91,6 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{RequeueAfter: time.Minute * 5}, fmt.Errorf("protected label conflict: %s", strings.Join(protectionResult.Warnings, "; "))
 	}
 
-	// Apply labels to namespace
 	changed := r.applyLabelsToNamespace(ns, protectionResult.AllowedLabels, prevApplied)
 
 	if changed {
@@ -103,13 +99,11 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
-	// Update tracking annotation
 	if err := writeAppliedAnnotation(ctx, r.Client, ns, protectionResult.AllowedLabels); err != nil {
 		// Log error but don't fail reconciliation since labels were applied successfully
 		l.Error(err, "failed to write applied annotation")
 	}
 
-	// Update status if the CR still exists
 	if exists {
 		labelCount := len(desired)
 		appliedCount := len(protectionResult.AllowedLabels)
@@ -155,7 +149,6 @@ func (r *NamespaceLabelReconciler) finalize(ctx context.Context, cr *labelsv1alp
 		return ctrl.Result{}, err
 	}
 
-	// Remove all applied labels
 	prevApplied := readAppliedAnnotation(ns)
 	changed := r.applyLabelsToNamespace(ns, map[string]string{}, prevApplied)
 	if changed {
@@ -165,13 +158,11 @@ func (r *NamespaceLabelReconciler) finalize(ctx context.Context, cr *labelsv1alp
 		}
 	}
 
-	// Clear applied annotation
 	if err := writeAppliedAnnotation(ctx, r.Client, ns, map[string]string{}); err != nil {
 		l.Error(err, "failed to clear applied annotation")
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
-	// Remove finalizer
 	controllerutil.RemoveFinalizer(cr, FinalizerName)
 	return ctrl.Result{}, r.Update(ctx, cr)
 }
