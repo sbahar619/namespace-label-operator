@@ -99,35 +99,31 @@ make fmt vet
 ### Container Images
 ```bash
 # Build container images (uses default image names)
-make docker-build
+make controller-docker-build webhook-docker-build
 
 # Build with custom image names
-make docker-build CONTROLLER_IMG=my-registry/namespacelabel-controller:v1.0.0 WEBHOOK_IMG=my-registry/namespacelabel-webhook:v1.0.0
+make controller-docker-build CONTROLLER_IMG=my-registry/namespacelabel-controller:v1.0.0
+make webhook-docker-build WEBHOOK_IMG=my-registry/namespacelabel-webhook:v1.0.0
 
 # Push to registry (uses default image names)
-make docker-push
+make controller-docker-push webhook-docker-push
 
 # Push with custom image names  
-make docker-push CONTROLLER_IMG=my-registry/namespacelabel-controller:v1.0.0 WEBHOOK_IMG=my-registry/namespacelabel-webhook:v1.0.0
+make controller-docker-push CONTROLLER_IMG=my-registry/namespacelabel-controller:v1.0.0
+make webhook-docker-push WEBHOOK_IMG=my-registry/namespacelabel-webhook:v1.0.0
 
-# Build installer manifest (uses default images)
-make build-installer
+# Generate installer manifest (uses default images)
+make generate-installer
 
-# Build installer with custom images
-make build-installer CONTROLLER_IMG=my-registry/namespacelabel-controller:v1.0.0 WEBHOOK_IMG=my-registry/namespacelabel-webhook:v1.0.0
+# Generate installer with custom images
+make generate-installer CONTROLLER_IMG=my-registry/namespacelabel-controller:v1.0.0 WEBHOOK_IMG=my-registry/namespacelabel-webhook:v1.0.0
 ```
 
 ## 🚢 Deployment
 
 ### Development Deployment
 ```bash
-# Full workflow: build + push + deploy + wait (uses default images)
-make full-deploy
-
-# Full workflow with custom images
-make full-deploy CONTROLLER_IMG=my-registry/namespacelabel-controller:v1.0.0 WEBHOOK_IMG=my-registry/namespacelabel-webhook:v1.0.0
-
-# Step-by-step
+# Step-by-step deployment
 make install                                                    # Install CRDs
 make deploy                                                     # Deploy with default images
 make deploy CONTROLLER_IMG=your-registry/controller:tag WEBHOOK_IMG=your-registry/webhook:tag  # Deploy with custom images
@@ -194,7 +190,7 @@ kubectl create clusterrolebinding alice-namespacelabel-editor \
 
 **Common Issues:**
 
-1. **Labels not applied** - Check controller logs: `make deploy-logs`
+1. **Labels not applied** - Check controller status: `make deploy-status` or check logs: `kubectl logs -n namespacelabel-system deployment/namespacelabel-controller-manager`
 2. **Protection conflicts** - Review `protectedLabelPatterns` and `protectionMode`
 3. **Permission denied** - Ensure user has `namespacelabel-editor-role`
 4. **Controller not ready** - Check deployment: `make deploy-status`
