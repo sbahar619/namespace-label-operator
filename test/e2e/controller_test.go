@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -36,113 +35,17 @@ import (
 	"github.com/sbahar619/namespace-label-operator/test/utils"
 )
 
-var _ = Describe("NamespaceLabel E2E Tests", func() {
+var _ = Describe("NamespaceLabel Controller Tests", Label("controller"), func() {
 	var (
 		k8sClient client.Client
 		ctx       context.Context
 		testNS    string
 	)
 
-	// CROptions provides options for creating NamespaceLabel CRs
-	type CROptions struct {
-		Name                   string
-		Labels                 map[string]string
-		ProtectedLabelPatterns []string
-		ProtectionMode         string
-	}
-
-	// newNamespaceLabel builds a NamespaceLabel CR object with the given options
-	// Returns the CR object without creating it in Kubernetes
-	newNamespaceLabel := func(opts CROptions) *labelsv1alpha1.NamespaceLabel {
-		// Default name to "labels" if not specified
-		name := opts.Name
-		if name == "" {
-			name = "labels"
-		}
-
-		// Create the CR
-		cr := &labelsv1alpha1.NamespaceLabel{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: testNS,
-			},
-			Spec: labelsv1alpha1.NamespaceLabelSpec{
-				Labels: opts.Labels,
-			},
-		}
-
-		// Add protection settings if specified
-		if len(opts.ProtectedLabelPatterns) > 0 {
-			cr.Spec.ProtectedLabelPatterns = opts.ProtectedLabelPatterns
-		}
-		if opts.ProtectionMode != "" {
-			cr.Spec.ProtectionMode = labelsv1alpha1.ProtectionMode(opts.ProtectionMode)
-		}
-
-		return cr
-	}
-
-	// createNamespaceLabel creates a NamespaceLabel CR in Kubernetes and expects it to succeed
-	// Returns the created CR object for further operations (like deletion)
-	createNamespaceLabel := func(opts CROptions) *labelsv1alpha1.NamespaceLabel {
-		cr := newNamespaceLabel(opts)
-		Expect(k8sClient.Create(ctx, cr)).To(Succeed())
-		return cr
-	}
-
-	// Helper function to clean up NamespaceLabel CRs reliably
-	cleanupNamespaceLabels := func(namespace string) {
-		crList := &labelsv1alpha1.NamespaceLabelList{}
-		if err := k8sClient.List(ctx, crList, client.InNamespace(namespace)); err == nil {
-			// First attempt: normal deletion
-			for _, cr := range crList.Items {
-				if err := k8sClient.Delete(ctx, &cr); err != nil && !errors.IsNotFound(err) {
-					fmt.Printf("Warning: failed to delete CR %s: %v\n", cr.Name, err)
-				}
-			}
-
-			// Give the controller a chance to process finalizers (if running)
-			time.Sleep(time.Second * 2)
-
-			// Check if CRs still exist after initial deletion attempt
-			crList = &labelsv1alpha1.NamespaceLabelList{}
-			remainingCRs := 0
-			if err := k8sClient.List(ctx, crList, client.InNamespace(namespace)); err == nil {
-				remainingCRs = len(crList.Items)
-			}
-
-			if remainingCRs > 0 {
-				fmt.Printf("Found %d remaining CRs, manually removing finalizers for namespace %s\n", remainingCRs, namespace)
-				// If CRs still exist, manually remove finalizers (controller might not be running)
-				for _, cr := range crList.Items {
-					// Get fresh copy and remove finalizers
-					freshCR := &labelsv1alpha1.NamespaceLabel{}
-					if err := k8sClient.Get(ctx, types.NamespacedName{Name: cr.Name, Namespace: cr.Namespace}, freshCR); err == nil {
-						if len(freshCR.Finalizers) > 0 {
-							freshCR.Finalizers = nil
-							if err := k8sClient.Update(ctx, freshCR); err != nil && !errors.IsNotFound(err) {
-								fmt.Printf("Warning: failed to remove finalizers from CR %s: %v\n", cr.Name, err)
-							}
-						}
-					}
-				}
-			}
-
-			// Final wait for all CRs to be deleted
-			Eventually(func() int {
-				crList := &labelsv1alpha1.NamespaceLabelList{}
-				if err := k8sClient.List(ctx, crList, client.InNamespace(namespace)); err != nil {
-					return 0
-				}
-				return len(crList.Items)
-			}, time.Second*30, time.Second).Should(Equal(0))
-		}
-	}
-
 	BeforeEach(func() {
 		ctx = context.Background()
 		// Use nanoseconds and random number to avoid collisions
-		testNS = fmt.Sprintf("e2e-test-%d-%d", time.Now().UnixNano(), rand.Int31())
+		testNS = fmt.Sprintf("controller-test-%d-%d", time.Now().UnixNano(), rand.Int31())
 
 		By("Setting up Kubernetes client")
 		var err error
@@ -163,7 +66,7 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 
 		// First, delete any NamespaceLabel CRs in the namespace to remove finalizers
 		By("Cleaning up NamespaceLabel CRs to remove finalizers")
-		cleanupNamespaceLabels(testNS)
+		utils.CleanupNamespaceLabels(ctx, k8sClient, testNS)
 
 		// Now delete the namespace
 		By("Deleting the test namespace")
@@ -192,94 +95,24 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 	Context("Basic NamespaceLabel Operations", func() {
 		It("should create a NamespaceLabel CR successfully", func() {
 			By("Creating a NamespaceLabel CR")
-			createNamespaceLabel(CROptions{
+			utils.CreateNamespaceLabel(ctx, k8sClient, utils.CROptions{
 				Labels: map[string]string{
 					"environment": "test",
 					"team":        "platform",
 				},
-			})
+			}, testNS)
 
 			By("Verifying the CR was created")
-			Eventually(func() error {
-				found := &labelsv1alpha1.NamespaceLabel{}
-				return k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "labels",
-					Namespace: testNS,
-				}, found)
-			}, time.Minute, time.Second).Should(Succeed())
+			utils.WaitForCRToExist(ctx, k8sClient, "labels", testNS)
 		})
 
-		It("should reject invalid CR names (when webhook is running)", func() {
-			By("Creating a NamespaceLabel CR with invalid name")
-			cr := newNamespaceLabel(CROptions{
-				Name: "invalid-name",
-				Labels: map[string]string{
-					"test": "value",
-				},
-			})
-
-			By("Checking if webhook validation occurs")
-			err := k8sClient.Create(ctx, cr)
-			
-			if err != nil {
-				// Webhook is running - verify it rejects with expected message
-				By("Verifying the webhook rejects the CR creation with proper validation message")
-				Expect(err.Error()).To(ContainSubstring("NamespaceLabel resource must be named 'labels' for singleton pattern enforcement"))
-			} else {
-				// Webhook is not running (e.g., local controller via 'make run')
-				By("Webhook validation not active - cleaning up created CR")
-				Expect(k8sClient.Delete(ctx, cr)).To(Succeed())
-				
-				// Wait for CR to be deleted to avoid interfering with other tests
-				Eventually(func() bool {
-					found := &labelsv1alpha1.NamespaceLabel{}
-					err := k8sClient.Get(ctx, types.NamespacedName{Name: "invalid-name", Namespace: testNS}, found)
-					return errors.IsNotFound(err)
-				}, time.Minute, time.Second).Should(BeTrue())
-				
-				Skip("Webhook validation not available - test requires webhook to be running")
-			}
-		})
-	})
-
-	Context("Namespace Label Application", func() {
-		It("should apply labels to the namespace (if controller is running)", func() {
-			By("Creating a valid NamespaceLabel CR")
-			createNamespaceLabel(CROptions{
-				Labels: map[string]string{
-					"environment": "test",
-					"managed-by":  "namespacelabel-operator",
-				},
-			})
-
-			By("Checking if labels are applied to namespace")
-			Eventually(func() map[string]string {
-				ns := &corev1.Namespace{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)
-				if err != nil {
-					return nil
-				}
-				return ns.Labels
-			}, time.Minute*2, time.Second*5).Should(Or(
-				// If controller is running, labels should be applied
-				And(
-					HaveKeyWithValue("environment", "test"),
-					HaveKeyWithValue("managed-by", "namespacelabel-operator"),
-				),
-				// If controller is not running, we won't have the labels
-				Not(HaveKey("environment")),
-			))
-		})
-	})
-
-	Context("CR Deletion", func() {
 		It("should delete NamespaceLabel CRs successfully", func() {
 			By("Creating a NamespaceLabel CR")
-			cr := createNamespaceLabel(CROptions{
+			cr := utils.CreateNamespaceLabel(ctx, k8sClient, utils.CROptions{
 				Labels: map[string]string{
 					"test": "value",
 				},
-			})
+			}, testNS)
 
 			By("Deleting the CR")
 			Expect(k8sClient.Delete(ctx, cr)).To(Succeed())
@@ -296,80 +129,62 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 		})
 	})
 
+	Context("Namespace Label Application", func() {
+		It("should apply labels to the namespace", func() {
+			By("Creating a valid NamespaceLabel CR")
+			utils.CreateNamespaceLabel(ctx, k8sClient, utils.CROptions{
+				Labels: map[string]string{
+					"environment": "test",
+					"managed-by":  "namespacelabel-operator",
+				},
+			}, testNS)
+
+			By("Checking if labels are applied to namespace")
+			Eventually(utils.GetNamespaceLabels(ctx, k8sClient, testNS), time.Minute*2, time.Second*5).Should(And(
+				HaveKeyWithValue("environment", "test"),
+				HaveKeyWithValue("managed-by", "namespacelabel-operator"),
+			))
+		})
+	})
+
 	Context("Label Protection", func() {
 		It("should skip protected labels in skip mode", func() {
 			By("Pre-setting a protected label on the namespace")
-			ns := &corev1.Namespace{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)).To(Succeed())
-			if ns.Labels == nil {
-				ns.Labels = make(map[string]string)
-			}
-			ns.Labels["kubernetes.io/managed-by"] = "system"
-			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
+			utils.SetNamespaceLabel(ctx, k8sClient, testNS, "kubernetes.io/managed-by", "system")
 
 			By("Creating a NamespaceLabel CR with protection patterns")
-			createNamespaceLabel(CROptions{
+			utils.CreateNamespaceLabel(ctx, k8sClient, utils.CROptions{
 				Labels: map[string]string{
 					"environment":              "test",
 					"kubernetes.io/managed-by": "namespacelabel-operator", // This should be skipped
 				},
 				ProtectedLabelPatterns: []string{"kubernetes.io/*"},
 				ProtectionMode:         "skip",
-			})
+			}, testNS)
 
 			By("Verifying the environment label was applied but protected label was skipped")
-			Eventually(func() map[string]string {
-				updatedNS := &corev1.Namespace{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, updatedNS)
-				if err != nil {
-					return nil
-				}
-				return updatedNS.Labels
-			}, time.Minute, time.Second*2).Should(And(
+			Eventually(utils.GetNamespaceLabels(ctx, k8sClient, testNS), time.Minute, time.Second*2).Should(And(
 				HaveKeyWithValue("environment", "test"),                // Should be applied
 				HaveKeyWithValue("kubernetes.io/managed-by", "system"), // Should remain unchanged
 			))
 
 			By("Checking the status shows skipped labels")
 			Eventually(func() []string {
-				found := &labelsv1alpha1.NamespaceLabel{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "labels",
-					Namespace: testNS,
-				}, found)
-				if err != nil {
+				status := utils.GetCRStatus(ctx, k8sClient, "labels", testNS)()
+				if status == nil {
 					return nil
 				}
-				return found.Status.ProtectedLabelsSkipped
+				return status.ProtectedLabelsSkipped
 			}, time.Minute, time.Second).Should(ContainElement("kubernetes.io/managed-by"))
 		})
 
-		// Test for regression: https://github.com/sbahar619/namespace-label-operator/issues/protection-race
-		// This test specifically validates that the protection system works correctly even when
-		// there are rapid reconciliations that could trigger race conditions in annotation updates.
-		//
-		// Bug context: Previously, the writeAppliedAnnotation function could cause race conditions
-		// where protected labels would initially be skipped correctly, but then subsequent
-		// reconciliations might bypass protection due to incorrect annotation state.
-		//
-		// This test ensures:
-		// 1. Protection works on first reconciliation
-		// 2. Protection continues to work through multiple rapid updates
-		// 3. The applied annotation only contains labels that were actually applied
-		// 4. Protected labels remain unchanged throughout all reconciliations
 		It("should prevent protection bypass through annotation race condition", func() {
 			By("Pre-setting a protected label on the namespace")
-			ns := &corev1.Namespace{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)).To(Succeed())
-			if ns.Labels == nil {
-				ns.Labels = make(map[string]string)
-			}
 			originalValue := "original-system-value"
-			ns.Labels["system.io/managed-by"] = originalValue
-			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
+			utils.SetNamespaceLabel(ctx, k8sClient, testNS, "system.io/managed-by", originalValue)
 
 			By("Creating a NamespaceLabel CR attempting to override the protected label")
-			createNamespaceLabel(CROptions{
+			utils.CreateNamespaceLabel(ctx, k8sClient, utils.CROptions{
 				Labels: map[string]string{
 					"environment":          "production",   // This should be applied
 					"system.io/managed-by": "hacker-value", // This should be blocked by protection
@@ -377,7 +192,7 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 				},
 				ProtectedLabelPatterns: []string{"system.io/*"},
 				ProtectionMode:         "warn",
-			})
+			}, testNS)
 
 			By("Triggering multiple rapid reconciliations by updating the CR")
 			for i := 0; i < 5; i++ {
@@ -401,23 +216,15 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 
 			By("Verifying protection held through all reconciliations")
 			Consistently(func() string {
-				updatedNS := &corev1.Namespace{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, updatedNS)
-				if err != nil || updatedNS.Labels == nil {
+				labels := utils.GetNamespaceLabels(ctx, k8sClient, testNS)()
+				if labels == nil {
 					return ""
 				}
-				return updatedNS.Labels["system.io/managed-by"]
+				return labels["system.io/managed-by"]
 			}, time.Second*10, time.Second).Should(Equal(originalValue), "Protected label should never change from original value")
 
 			By("Verifying non-protected labels were applied correctly")
-			Eventually(func() map[string]string {
-				updatedNS := &corev1.Namespace{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, updatedNS)
-				if err != nil {
-					return nil
-				}
-				return updatedNS.Labels
-			}, time.Minute, time.Second).Should(And(
+			Eventually(utils.GetNamespaceLabels(ctx, k8sClient, testNS), time.Minute, time.Second).Should(And(
 				HaveKeyWithValue("environment", "production"),           // Should be applied
 				HaveKeyWithValue("tier", "critical"),                    // Should be applied
 				HaveKeyWithValue("update-counter", "update-4"),          // Should have latest update
@@ -426,15 +233,11 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 
 			By("Verifying the status consistently shows the protected label was skipped")
 			Eventually(func() []string {
-				found := &labelsv1alpha1.NamespaceLabel{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "labels",
-					Namespace: testNS,
-				}, found)
-				if err != nil {
+				status := utils.GetCRStatus(ctx, k8sClient, "labels", testNS)()
+				if status == nil {
 					return nil
 				}
-				return found.Status.ProtectedLabelsSkipped
+				return status.ProtectedLabelsSkipped
 			}, time.Minute, time.Second).Should(ContainElement("system.io/managed-by"))
 
 			By("Verifying the applied annotation only contains non-protected labels")
@@ -457,23 +260,17 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 	Context("Protection Modes", func() {
 		It("should fail reconciliation in fail mode when protected labels conflict", func() {
 			By("Pre-setting a protected label on the namespace")
-			ns := &corev1.Namespace{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)).To(Succeed())
-			if ns.Labels == nil {
-				ns.Labels = make(map[string]string)
-			}
-			ns.Labels["kubernetes.io/managed-by"] = "existing-system"
-			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
+			utils.SetNamespaceLabel(ctx, k8sClient, testNS, "kubernetes.io/managed-by", "existing-system")
 
 			By("Creating a NamespaceLabel CR with fail protection mode")
-			createNamespaceLabel(CROptions{
+			utils.CreateNamespaceLabel(ctx, k8sClient, utils.CROptions{
 				Labels: map[string]string{
 					"environment":              "test",
 					"kubernetes.io/managed-by": "operator", // This should cause failure
 				},
 				ProtectedLabelPatterns: []string{"kubernetes.io/*"},
 				ProtectionMode:         "fail",
-			})
+			}, testNS)
 
 			By("Verifying the CR gets a failure status")
 			Eventually(func() bool {
@@ -508,23 +305,17 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 
 		It("should warn about protected labels in warn mode", func() {
 			By("Pre-setting a protected label on the namespace")
-			ns := &corev1.Namespace{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)).To(Succeed())
-			if ns.Labels == nil {
-				ns.Labels = make(map[string]string)
-			}
-			ns.Labels["istio.io/injection"] = "enabled"
-			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
+			utils.SetNamespaceLabel(ctx, k8sClient, testNS, "istio.io/injection", "enabled")
 
 			By("Creating a NamespaceLabel CR with warn protection mode")
-			createNamespaceLabel(CROptions{
+			utils.CreateNamespaceLabel(ctx, k8sClient, utils.CROptions{
 				Labels: map[string]string{
 					"environment":        "production",
 					"istio.io/injection": "disabled", // This should be skipped with warning
 				},
 				ProtectedLabelPatterns: []string{"istio.io/*"},
 				ProtectionMode:         "warn",
-			})
+			}, testNS)
 
 			By("Verifying non-protected labels are applied")
 			Eventually(func() string {
@@ -561,101 +352,18 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 		})
 	})
 
-	Context("Singleton Enforcement", func() {
-		It("should prevent multiple NamespaceLabel CRs in the same namespace (when webhook is running)", func() {
-			By("Creating the first valid NamespaceLabel CR")
-			createNamespaceLabel(CROptions{
-				Labels: map[string]string{
-					"environment": "production",
-				},
-			})
-
-			By("Attempting to create a second NamespaceLabel CR with invalid name")
-			cr2 := newNamespaceLabel(CROptions{
-				Name: "other-labels",
-				Labels: map[string]string{
-					"team": "platform",
-				},
-			})
-
-			By("Checking if webhook validation occurs")
-			err := k8sClient.Create(ctx, cr2)
-			
-			if err != nil {
-				// Webhook is running - verify it rejects with expected message
-				By("Verifying the webhook rejects the second CR due to invalid name")
-				Expect(err.Error()).To(ContainSubstring("NamespaceLabel resource must be named 'labels' for singleton pattern enforcement"))
-			} else {
-				// Webhook is not running - clean up and skip
-				By("Webhook validation not active - cleaning up created CR")
-				Expect(k8sClient.Delete(ctx, cr2)).To(Succeed())
-				
-				// Wait for CR to be deleted 
-				Eventually(func() bool {
-					found := &labelsv1alpha1.NamespaceLabel{}
-					err := k8sClient.Get(ctx, types.NamespacedName{Name: "other-labels", Namespace: testNS}, found)
-					return errors.IsNotFound(err)
-				}, time.Minute, time.Second).Should(BeTrue())
-				
-				Skip("Webhook validation not available - test requires webhook to be running")
-			}
-		})
-
-		It("should prevent creation of second CR with valid name when one already exists", func() {
-			By("Creating the first valid NamespaceLabel CR")
-			createNamespaceLabel(CROptions{
-				Labels: map[string]string{
-					"environment": "production",
-				},
-			})
-
-			By("Attempting to create a second NamespaceLabel CR with the same valid name")
-			cr2 := newNamespaceLabel(CROptions{
-				Labels: map[string]string{
-					"team": "platform",
-				},
-			})
-
-			By("Attempting to create the duplicate CR")
-			err := k8sClient.Create(ctx, cr2)
-			Expect(err).To(HaveOccurred())
-
-			By("Verifying appropriate error message")
-			// Accept either webhook validation error or standard Kubernetes "already exists" error
-			errorMsg := err.Error()
-			webhookError := "only one NamespaceLabel resource is allowed per namespace"
-			k8sError := "already exists"
-			
-			Expect(errorMsg).To(Or(
-				ContainSubstring(webhookError), // Webhook validation message
-				ContainSubstring(k8sError),     // Standard Kubernetes API error
-			))
-			
-			if !strings.Contains(errorMsg, webhookError) && strings.Contains(errorMsg, k8sError) {
-				By("Standard Kubernetes API rejection (webhook not running) - this is expected behavior")
-			}
-		})
-	})
-
 	Context("Label Updates and Removal", func() {
 		It("should update namespace labels when CR is modified", func() {
 			By("Creating a NamespaceLabel CR")
-			createNamespaceLabel(CROptions{
+			utils.CreateNamespaceLabel(ctx, k8sClient, utils.CROptions{
 				Labels: map[string]string{
 					"environment": "dev",
 					"version":     "v1",
 				},
-			})
+			}, testNS)
 
 			By("Waiting for labels to be applied")
-			Eventually(func() map[string]string {
-				ns := &corev1.Namespace{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)
-				if err != nil {
-					return nil
-				}
-				return ns.Labels
-			}, time.Minute, time.Second).Should(And(
+			Eventually(utils.GetNamespaceLabels(ctx, k8sClient, testNS), time.Minute, time.Second).Should(And(
 				HaveKeyWithValue("environment", "dev"),
 				HaveKeyWithValue("version", "v1"),
 			))
@@ -675,14 +383,7 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 			}, time.Second*10, time.Millisecond*100).Should(Succeed())
 
 			By("Verifying namespace labels are updated accordingly")
-			Eventually(func() map[string]string {
-				ns := &corev1.Namespace{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)
-				if err != nil {
-					return nil
-				}
-				return ns.Labels
-			}, time.Minute, time.Second).Should(And(
+			Eventually(utils.GetNamespaceLabels(ctx, k8sClient, testNS), time.Minute, time.Second).Should(And(
 				HaveKeyWithValue("environment", "production"), // Updated
 				HaveKeyWithValue("tier", "critical"),          // Added
 				Not(HaveKey("version")),                       // Removed
@@ -691,22 +392,15 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 
 		It("should clean up all labels when CR is deleted", func() {
 			By("Creating a NamespaceLabel CR")
-			cr := createNamespaceLabel(CROptions{
+			cr := utils.CreateNamespaceLabel(ctx, k8sClient, utils.CROptions{
 				Labels: map[string]string{
 					"cleanup-test":     "true",
 					"operator-managed": "namespacelabel",
 				},
-			})
+			}, testNS)
 
 			By("Waiting for labels to be applied")
-			Eventually(func() map[string]string {
-				ns := &corev1.Namespace{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)
-				if err != nil {
-					return nil
-				}
-				return ns.Labels
-			}, time.Minute, time.Second).Should(And(
+			Eventually(utils.GetNamespaceLabels(ctx, k8sClient, testNS), time.Minute, time.Second).Should(And(
 				HaveKeyWithValue("cleanup-test", "true"),
 				HaveKeyWithValue("operator-managed", "namespacelabel"),
 			))
@@ -715,14 +409,7 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 			Expect(k8sClient.Delete(ctx, cr)).To(Succeed())
 
 			By("Verifying operator-managed labels are removed from namespace")
-			Eventually(func() map[string]string {
-				ns := &corev1.Namespace{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)
-				if err != nil {
-					return nil
-				}
-				return ns.Labels
-			}, time.Minute, time.Second).Should(And(
+			Eventually(utils.GetNamespaceLabels(ctx, k8sClient, testNS), time.Minute, time.Second).Should(And(
 				Not(HaveKey("cleanup-test")),
 				Not(HaveKey("operator-managed")),
 			))
@@ -732,16 +419,10 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 	Context("Status Reporting", func() {
 		It("should report correct status with applied and skipped labels", func() {
 			By("Pre-setting a protected label on the namespace")
-			ns := &corev1.Namespace{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testNS}, ns)).To(Succeed())
-			if ns.Labels == nil {
-				ns.Labels = make(map[string]string)
-			}
-			ns.Labels["app.kubernetes.io/managed-by"] = "helm"
-			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
+			utils.SetNamespaceLabel(ctx, k8sClient, testNS, "app.kubernetes.io/managed-by", "helm")
 
 			By("Creating a NamespaceLabel CR with mixed protected and non-protected labels")
-			createNamespaceLabel(CROptions{
+			utils.CreateNamespaceLabel(ctx, k8sClient, utils.CROptions{
 				Labels: map[string]string{
 					"environment":                  "test",     // Should be applied
 					"team":                         "platform", // Should be applied
@@ -749,7 +430,7 @@ var _ = Describe("NamespaceLabel E2E Tests", func() {
 				},
 				ProtectedLabelPatterns: []string{"app.kubernetes.io/*"},
 				ProtectionMode:         "skip",
-			})
+			}, testNS)
 
 			By("Verifying the status accurately reflects applied and skipped labels")
 			Eventually(func() bool {

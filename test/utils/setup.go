@@ -17,13 +17,18 @@ limitations under the License.
 package utils
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:golint,revive
+	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -108,4 +113,54 @@ func getKubeConfig() (*rest.Config, error) {
 	}
 
 	return config, nil
+}
+
+// CleanupNamespaceLabels cleans up NamespaceLabel CRs reliably
+// This function handles finalizers that are managed by the controller
+func CleanupNamespaceLabels(ctx context.Context, k8sClient client.Client, namespace string) {
+	crList := &labelsv1alpha1.NamespaceLabelList{}
+	if err := k8sClient.List(ctx, crList, client.InNamespace(namespace)); err == nil {
+		// First attempt: normal deletion
+		for _, cr := range crList.Items {
+			if err := k8sClient.Delete(ctx, &cr); err != nil && !errors.IsNotFound(err) {
+				fmt.Printf("Warning: failed to delete CR %s: %v\n", cr.Name, err)
+			}
+		}
+
+		// Give the controller a chance to process finalizers (if running)
+		time.Sleep(time.Second * 2)
+
+		// Check if CRs still exist after initial deletion attempt
+		crList = &labelsv1alpha1.NamespaceLabelList{}
+		remainingCRs := 0
+		if err := k8sClient.List(ctx, crList, client.InNamespace(namespace)); err == nil {
+			remainingCRs = len(crList.Items)
+		}
+
+		if remainingCRs > 0 {
+			fmt.Printf("Found %d remaining CRs, manually removing finalizers for namespace %s\n", remainingCRs, namespace)
+			// If CRs still exist, manually remove finalizers (controller might not be running)
+			for _, cr := range crList.Items {
+				// Get fresh copy and remove finalizers
+				freshCR := &labelsv1alpha1.NamespaceLabel{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: cr.Name, Namespace: cr.Namespace}, freshCR); err == nil {
+					if len(freshCR.Finalizers) > 0 {
+						freshCR.Finalizers = nil
+						if err := k8sClient.Update(ctx, freshCR); err != nil && !errors.IsNotFound(err) {
+							fmt.Printf("Warning: failed to remove finalizers from CR %s: %v\n", cr.Name, err)
+						}
+					}
+				}
+			}
+		}
+
+		// Final wait for all CRs to be deleted
+		Eventually(func() int {
+			crList := &labelsv1alpha1.NamespaceLabelList{}
+			if err := k8sClient.List(ctx, crList, client.InNamespace(namespace)); err != nil {
+				return 0
+			}
+			return len(crList.Items)
+		}, time.Second*30, time.Second).Should(Equal(0))
+	}
 }

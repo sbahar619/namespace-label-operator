@@ -52,13 +52,19 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet envtest ginkgo ## Run unit tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GINKGO) -v --procs=16 --compilers=16 --show-node-events --coverprofile cover.out ./internal/... ./api/...
 
+# GINKGO_FOCUS can be set to run specific tests by label
+# Examples:
+#   make test-e2e GINKGO_FOCUS=controller # Run only controller tests  
+#   make test-e2e GINKGO_FOCUS=webhook   # Run only webhook tests
+GINKGO_FOCUS ?=
+
 .PHONY: test-e2e
-test-e2e: ginkgo ## Run E2E tests in parallel.
-	$(GINKGO) -v --procs=16 --compilers=16 --fail-on-pending --show-node-events --timeout=15m ./test/e2e/
+test-e2e: ginkgo ## Run E2E tests in parallel. Use GINKGO_FOCUS=label to run specific tests.
+	$(GINKGO) -v --procs=16 --compilers=16 --fail-on-pending --show-node-events --timeout=15m $(if $(GINKGO_FOCUS),--label-filter="$(GINKGO_FOCUS)") ./test/e2e/
 
 .PHONY: test-e2e-debug
-test-e2e-debug: ## Run E2E tests sequentially for debugging.
-	go test ./test/e2e/ -v -timeout 15m --ginkgo.v --ginkgo.fail-on-pending
+test-e2e-debug: ## Run E2E tests sequentially for debugging. Use GINKGO_FOCUS=label to run specific tests.
+	go test ./test/e2e/ -v -timeout 15m --ginkgo.v --ginkgo.fail-on-pending $(if $(GINKGO_FOCUS),--ginkgo.label-filter="$(GINKGO_FOCUS)")
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter.
