@@ -1,6 +1,6 @@
 # Image URL to use for building/pushing image targets
-CONTROLLER_IMG ?= quay.io/sbahar/namespacelabel-controller:main
-WEBHOOK_IMG ?= quay.io/sbahar/namespacelabel-webhook:main
+CONTROLLER_IMG ?= controller:latest
+WEBHOOK_IMG ?= webhook:latest
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary
 ENVTEST_K8S_VERSION = 1.29.0
