@@ -176,6 +176,32 @@ jobs:
         
         # Deploy controller and webhook with correct image references
         make deploy CONTROLLER_IMG=controller:latest WEBHOOK_IMG=webhook:latest
+
+        kubectl patch deployment namespacelabel-controller-manager -n namespacelabel-system --patch '{
+          "spec": {
+            "template": {
+              "spec": {
+                "containers": [{
+                  "name": "manager",
+                  "imagePullPolicy": "IfNotPresent"
+                }]
+              }
+            }
+          }
+        }'
+
+        kubectl patch deployment namespacelabel-webhook-server -n namespacelabel-system --patch '{
+          "spec": {
+            "template": {
+              "spec": {
+                "containers": [{
+                  "name": "webhook-server",
+                  "imagePullPolicy": "IfNotPresent"
+                }]
+              }
+            }
+          }
+        }'
         
         # Wait for deployments to be ready
         kubectl wait --for=condition=Available deployment/namespacelabel-controller-manager -n namespacelabel-system --timeout=30s

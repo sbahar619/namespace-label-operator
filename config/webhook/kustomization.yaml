@@ -11,4 +11,4 @@ kind: Kustomization
 images:
 - name: webhook
   newName: webhook
-  newTag: main
+  newTag: latest
