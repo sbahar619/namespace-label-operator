@@ -31,7 +31,6 @@ import (
 )
 
 // nolint:unused
-// log is for logging in this package.
 var namespacelabellog = logf.Log.WithName("namespacelabel-resource")
 
 const (
@@ -39,7 +38,6 @@ const (
 	StandardCRName = "labels"
 )
 
-// SetupNamespaceLabelWebhookWithManager registers the webhook for NamespaceLabel in the manager.
 func SetupNamespaceLabelWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(&labelsv1alpha1.NamespaceLabel{}).
 		WithValidator(&NamespaceLabelCustomValidator{
@@ -64,7 +62,6 @@ type NamespaceLabelCustomValidator struct {
 
 var _ webhook.CustomValidator = &NamespaceLabelCustomValidator{}
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type NamespaceLabel.
 func (v *NamespaceLabelCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	namespacelabel, ok := obj.(*labelsv1alpha1.NamespaceLabel)
 	if !ok {
@@ -82,7 +79,6 @@ func (v *NamespaceLabelCustomValidator) ValidateCreate(ctx context.Context, obj 
 		return nil, err
 	}
 
-	// Validate spec content
 	if err := v.validateSpec(namespacelabel); err != nil {
 		return nil, err
 	}
@@ -90,7 +86,6 @@ func (v *NamespaceLabelCustomValidator) ValidateCreate(ctx context.Context, obj 
 	return nil, nil
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type NamespaceLabel.
 func (v *NamespaceLabelCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	namespacelabel, ok := newObj.(*labelsv1alpha1.NamespaceLabel)
 	if !ok {
@@ -114,7 +109,6 @@ func (v *NamespaceLabelCustomValidator) ValidateUpdate(ctx context.Context, oldO
 		return nil, err
 	}
 
-	// Validate spec content
 	if err := v.validateSpec(namespacelabel); err != nil {
 		return nil, err
 	}
@@ -122,7 +116,6 @@ func (v *NamespaceLabelCustomValidator) ValidateUpdate(ctx context.Context, oldO
 	return nil, nil
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type NamespaceLabel.
 func (v *NamespaceLabelCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	namespacelabel, ok := obj.(*labelsv1alpha1.NamespaceLabel)
 	if !ok {

@@ -201,58 +201,6 @@ var _ = Describe("NamespaceLabelReconciler", Label("controller"), func() {
 		})
 	})
 
-	Describe("getTargetNamespace", func() {
-		It("should get target namespace successfully", func() {
-			createNamespace("test-ns", nil, nil)
-
-			result, err := reconciler.getTargetNamespace(ctx, "test-ns")
-
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.Name).To(Equal("test-ns"))
-		})
-
-		It("should return error for non-existent namespace", func() {
-			_, err := reconciler.getTargetNamespace(ctx, "non-existent")
-
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsNotFound(err)).To(BeTrue())
-		})
-	})
-
-	Describe("applyLabelsToNamespace", func() {
-		It("should apply labels to namespace", func() {
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-ns",
-					Labels: map[string]string{
-						"existing": "label",
-					},
-				},
-			}
-
-			desired := map[string]string{
-				"new":     "label",
-				"updated": "value",
-			}
-			prevApplied := map[string]string{
-				"old": "label",
-			}
-
-			changed := reconciler.applyLabelsToNamespace(ns, desired, prevApplied)
-
-			Expect(changed).To(BeTrue())
-			Expect(ns.Labels).To(HaveKeyWithValue("existing", "label"))
-			Expect(ns.Labels).To(HaveKeyWithValue("new", "label"))
-			Expect(ns.Labels).To(HaveKeyWithValue("updated", "value"))
-			Expect(ns.Labels).NotTo(HaveKey("old")) // Should be removed as stale
-		})
-	})
-
-	It("should create reconciler with proper configuration", func() {
-		Expect(reconciler.Client).NotTo(BeNil())
-		Expect(reconciler.Scheme).NotTo(BeNil())
-	})
-
 	Describe("finalize", func() {
 		// Test data for table-driven approach
 		DescribeTable("should handle different deletion scenarios",
@@ -309,5 +257,57 @@ var _ = Describe("NamespaceLabelReconciler", Label("controller"), func() {
 						})
 				}, "test-ns", true, map[string]string{"existing": "keep-me"}),
 		)
+	})
+
+	Describe("getTargetNamespace", func() {
+		It("should get target namespace successfully", func() {
+			createNamespace("test-ns", nil, nil)
+
+			result, err := reconciler.getTargetNamespace(ctx, "test-ns")
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Name).To(Equal("test-ns"))
+		})
+
+		It("should return error for non-existent namespace", func() {
+			_, err := reconciler.getTargetNamespace(ctx, "non-existent")
+
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+	})
+
+	Describe("applyLabelsToNamespace", func() {
+		It("should apply labels to namespace", func() {
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
+					Labels: map[string]string{
+						"existing": "label",
+					},
+				},
+			}
+
+			desired := map[string]string{
+				"new":     "label",
+				"updated": "value",
+			}
+			prevApplied := map[string]string{
+				"old": "label",
+			}
+
+			changed := reconciler.applyLabelsToNamespace(ns, desired, prevApplied)
+
+			Expect(changed).To(BeTrue())
+			Expect(ns.Labels).To(HaveKeyWithValue("existing", "label"))
+			Expect(ns.Labels).To(HaveKeyWithValue("new", "label"))
+			Expect(ns.Labels).To(HaveKeyWithValue("updated", "value"))
+			Expect(ns.Labels).NotTo(HaveKey("old")) // Should be removed as stale
+		})
+	})
+
+	It("should create reconciler with proper configuration", func() {
+		Expect(reconciler.Client).NotTo(BeNil())
+		Expect(reconciler.Scheme).NotTo(BeNil())
 	})
 })
