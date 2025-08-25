@@ -178,8 +178,8 @@ jobs:
         make deploy CONTROLLER_IMG=controller:latest WEBHOOK_IMG=webhook:latest
         
         # Wait for deployments to be ready
-        kubectl wait --for=condition=Available deployment/namespacelabel-controller-manager -n namespacelabel-system --timeout=300s
-        kubectl wait --for=condition=Available deployment/namespacelabel-webhook -n namespacelabel-system --timeout=300s
+        kubectl wait --for=condition=Available deployment/namespacelabel-controller-manager -n namespacelabel-system --timeout=30s
+        kubectl wait --for=condition=Available deployment/namespacelabel-webhook -n namespacelabel-system --timeout=30s
         
         # Verify deployment status
         kubectl get pods -n namespacelabel-system
@@ -198,9 +198,9 @@ jobs:
         kubectl describe pods -n namespacelabel-system
         kubectl logs deployment/namespacelabel-webhook -n namespacelabel-system --tail=100
 
-        - name: Cleanup kind cluster
-          if: always()
-          run: kind delete cluster --name namespacelabel-e2e
+    - name: Cleanup kind cluster
+      if: always()
+      run: kind delete cluster --name namespacelabel-e2e
 
   # Job 4: Build Validation
   build:
