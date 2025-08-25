@@ -224,10 +224,10 @@ jobs:
     - name: Get pod logs on failure
       if: failure()
       run: |
-        kubectl logs deployment/namespacelabel-controller-manager -n namespacelabel-system --tail=100
-        kubectl get pods -n namespacelabel-system -o wide
-        kubectl describe pods -n namespacelabel-system
-        kubectl logs deployment/namespacelabel-webhook -n namespacelabel-system --tail=100
+        kubectl logs deployment/namespacelabel-controller-manager -n namespacelabel-system --tail=100 || true
+        kubectl get pods -n namespacelabel-system -o wide || true
+        kubectl describe pods -n namespacelabel-system || true
+        kubectl logs deployment/namespacelabel-webhook -n namespacelabel-system --tail=100 || true
 
     - name: Cleanup kind cluster
       if: always()
