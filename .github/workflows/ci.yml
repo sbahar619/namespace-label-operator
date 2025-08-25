@@ -289,23 +289,48 @@ jobs:
 
     - name: Load images to kind
       run: |
-        kind load docker-image controller:latest --name namespacelabel-e2e
-        kind load docker-image webhook:latest --name namespacelabel-e2e
+        echo "Checking built images in runner..."
+        docker images | grep -E "(controller|webhook)"
+        
+        echo "Loading controller image to kind cluster..."
+        kind load docker-image controller:latest --name namespacelabel-e2e || { 
+          echo "Failed to load controller image"; 
+          docker images; 
+          exit 1; 
+        }
+        
+        echo "Loading webhook image to kind cluster..."
+        kind load docker-image webhook:latest --name namespacelabel-e2e || { 
+          echo "Failed to load webhook image"; 
+          docker images; 
+          exit 1; 
+        }
+        
+        echo "Verifying images are loaded in kind cluster..."
+        docker exec namespacelabel-e2e-control-plane crictl images | grep -E "(controller|webhook)" || {
+          echo "Images not found in kind cluster!";
+          docker exec namespacelabel-e2e-control-plane crictl images;
+          exit 1;
+        }
 
     - name: Deploy to cluster
       run: |
         # Deploy controller and webhook with correct image references
         make deploy CONTROLLER_IMG=controller:latest WEBHOOK_IMG=webhook:latest
 
-        # Patch deployments for local images
+        # Wait a moment for deployment to be created
+        sleep 5
+
+        # Patch controller deployment for local images - patch both manager and kube-rbac-proxy containers
         kubectl patch deployment namespacelabel-controller-manager -n namespacelabel-system --type=json --patch '[
           {
             "op": "replace",
-            "path": "/spec/template/spec/containers/0/imagePullPolicy",
+            "path": "/spec/template/spec/containers/1/imagePullPolicy",
             "value": "IfNotPresent"
           }
         ]'
 
+        # Patch webhook deployment for local images
         kubectl patch deployment namespacelabel-webhook-server -n namespacelabel-system --type=json --patch '[
           {
             "op": "replace",
@@ -314,9 +339,20 @@ jobs:
           }
         ]'
         
-        # Wait for deployments to be ready
-        kubectl wait --for=condition=Available deployment/namespacelabel-controller-manager -n namespacelabel-system --timeout=300s
+        # Show deployment status before waiting
+        echo "Deployment status:"
+        kubectl get deployments -n namespacelabel-system
+        kubectl describe deployment namespacelabel-controller-manager -n namespacelabel-system
+        
+        # Wait for deployments to be ready with longer timeout
+        echo "Waiting for controller manager to be ready..."
+        kubectl wait --for=condition=Available deployment/namespacelabel-controller-manager -n namespacelabel-system --timeout=600s
+        
+        echo "Waiting for webhook server to be ready..."
         kubectl wait --for=condition=Available deployment/namespacelabel-webhook-server -n namespacelabel-system --timeout=300s
+        
+        # Final verification
+        kubectl get pods -n namespacelabel-system -o wide
 
     - name: Run E2E tests
       run: make test-e2e
@@ -325,13 +361,26 @@ jobs:
     - name: Get pod logs on failure
       if: failure()
       run: |
+        echo "=== Debug Information ==="
+        echo "Docker images in runner:"
+        docker images | grep -E "(controller|webhook)" || true
+        
+        echo "Images in kind cluster:"
+        docker exec namespacelabel-e2e-control-plane crictl images | grep -E "(controller|webhook)" || true
+        
         echo "=== Controller logs ==="
-        kubectl logs deployment/namespacelabel-controller-manager -n namespacelabel-system --tail=100 || true
+        kubectl logs deployment/namespacelabel-controller-manager -n namespacelabel-system --all-containers=true --tail=100 || true
+        
         echo "=== Webhook logs ==="
         kubectl logs deployment/namespacelabel-webhook-server -n namespacelabel-system --tail=100 || true
+        
         echo "=== Pod status ==="
         kubectl get pods -n namespacelabel-system -o wide || true
         kubectl describe pods -n namespacelabel-system || true
+        
+        echo "=== Deployment status ==="
+        kubectl describe deployment namespacelabel-controller-manager -n namespacelabel-system || true
+        kubectl describe deployment namespacelabel-webhook-server -n namespacelabel-system || true
 
     - name: Cleanup kind cluster
       if: always()
