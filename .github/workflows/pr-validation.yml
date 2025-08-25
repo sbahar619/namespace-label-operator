@@ -58,12 +58,11 @@ jobs:
     - name: Run go vet
       run: make vet
 
-    - name: Install golangci-lint
-      run: |
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ env.GOLANGCI_LINT_VERSION }}
-
     - name: Run golangci-lint
-      run: $(go env.GOPATH)/bin/golangci-lint run --timeout=5m
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: ${{ env.GOLANGCI_LINT_VERSION }}
+        args: --timeout=5m
 
   # Job 2: Unit Tests with Coverage
   unit-tests:
