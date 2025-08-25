@@ -207,9 +207,6 @@ jobs:
             "value": "IfNotPresent"
           }
         ]'
-
-        kubectl set image deployment/namespacelabel-controller-manager -n namespacelabel-system manager=controller:latest
-        kubectl set image deployment/namespacelabel-webhook-server -n namespacelabel-system webhook=webhook:latest
         
         # Wait for deployments to be ready
         kubectl wait --for=condition=Available deployment/namespacelabel-controller-manager -n namespacelabel-system --timeout=30s
