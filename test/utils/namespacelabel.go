@@ -72,7 +72,12 @@ func NewNamespaceLabel(opts CROptions, namespace string) *labelsv1alpha1.Namespa
 
 // CreateNamespaceLabel creates a NamespaceLabel CR in Kubernetes and expects it to succeed
 // Returns the created CR object for further operations (like deletion)
-func CreateNamespaceLabel(ctx context.Context, k8sClient client.Client, opts CROptions, namespace string) *labelsv1alpha1.NamespaceLabel {
+func CreateNamespaceLabel(
+	ctx context.Context,
+	k8sClient client.Client,
+	opts CROptions,
+	namespace string,
+) *labelsv1alpha1.NamespaceLabel {
 	cr := NewNamespaceLabel(opts, namespace)
 	Expect(k8sClient.Create(ctx, cr)).To(Succeed())
 	return cr
@@ -99,7 +104,11 @@ func WaitForCRToBeDeleted(ctx context.Context, k8sClient client.Client, name, na
 }
 
 // GetCRStatus returns a function that gets the CR status
-func GetCRStatus(ctx context.Context, k8sClient client.Client, name, namespace string) func() *labelsv1alpha1.NamespaceLabelStatus {
+func GetCRStatus(
+	ctx context.Context,
+	k8sClient client.Client,
+	name, namespace string,
+) func() *labelsv1alpha1.NamespaceLabelStatus {
 	return func() *labelsv1alpha1.NamespaceLabelStatus {
 		found := &labelsv1alpha1.NamespaceLabel{}
 		err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, found)
@@ -134,7 +143,12 @@ func SetNamespaceLabel(ctx context.Context, k8sClient client.Client, namespace, 
 }
 
 // ExpectWebhookRejection expects webhook to reject CR creation with specific error
-func ExpectWebhookRejection(ctx context.Context, k8sClient client.Client, cr *labelsv1alpha1.NamespaceLabel, expectedErrorSubstring string) {
+func ExpectWebhookRejection(
+	ctx context.Context,
+	k8sClient client.Client,
+	cr *labelsv1alpha1.NamespaceLabel,
+	expectedErrorSubstring string,
+) {
 	err := k8sClient.Create(ctx, cr)
 	Expect(err).To(HaveOccurred(), "Expected webhook to reject the CR")
 	Expect(err.Error()).To(ContainSubstring(expectedErrorSubstring), "Expected specific validation error message")

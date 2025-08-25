@@ -75,6 +75,7 @@ var _ = Describe("NamespaceLabelReconciler", Label("controller"), func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:       name,
 				Namespace:  namespace,
+				Labels:     labels,
 				Finalizers: finalizers,
 			},
 			Spec: spec,

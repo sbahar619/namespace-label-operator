@@ -19,7 +19,7 @@ on:
 
 env:
   GO_VERSION: '1.21'
-  GOLANGCI_LINT_VERSION: 'latest'
+  GOLANGCI_LINT_VERSION: 'v1.57.2'
 
 jobs:
   # Fast validation for immediate feedback
