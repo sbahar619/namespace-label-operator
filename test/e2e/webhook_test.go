@@ -102,7 +102,8 @@ var _ = Describe("NamespaceLabel Webhook Tests", Label("webhook"), func() {
 				},
 			}, testNS)
 
-			utils.ExpectWebhookRejection(ctx, k8sClient, cr, "NamespaceLabel resource must be named 'labels' for singleton pattern enforcement")
+			utils.ExpectWebhookRejection(ctx, k8sClient, cr,
+				"NamespaceLabel resource must be named 'labels' for singleton pattern enforcement")
 		})
 	})
 
@@ -123,7 +124,8 @@ var _ = Describe("NamespaceLabel Webhook Tests", Label("webhook"), func() {
 				},
 			}, testNS)
 
-			utils.ExpectWebhookRejection(ctx, k8sClient, cr2, "NamespaceLabel resource must be named 'labels' for singleton pattern enforcement")
+			utils.ExpectWebhookRejection(ctx, k8sClient, cr2,
+				"NamespaceLabel resource must be named 'labels' for singleton pattern enforcement")
 		})
 
 		It("should prevent creation of second CR with valid name when one already exists", func() {

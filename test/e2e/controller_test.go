@@ -221,7 +221,8 @@ var _ = Describe("NamespaceLabel Controller Tests", Label("controller"), func() 
 					return ""
 				}
 				return labels["system.io/managed-by"]
-			}, time.Second*10, time.Second).Should(Equal(originalValue), "Protected label should never change from original value")
+			}, time.Second*10, time.Second).Should(Equal(originalValue),
+				"Protected label should never change from original value")
 
 			By("Verifying non-protected labels were applied correctly")
 			Eventually(utils.GetNamespaceLabels(ctx, k8sClient, testNS), time.Minute, time.Second).Should(And(

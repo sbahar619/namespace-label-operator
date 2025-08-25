@@ -141,12 +141,8 @@ func applyProtectionLogic(
 				}
 			}
 
-			// Protected label with no conflict - log for debugging
-			if !hasExisting {
-				// This is fine - setting a new protected label is allowed
-			} else if existingValue == value {
-				// This is fine - no change needed
-			}
+			// Protected label with no conflict - allow it
+			// Either setting a new protected label (!hasExisting) or no change needed (existingValue == value)
 		}
 
 		// Label is either not protected or safe to apply
