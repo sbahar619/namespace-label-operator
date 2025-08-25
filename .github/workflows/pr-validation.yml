@@ -159,10 +159,25 @@ jobs:
     - name: Install test dependencies
       run: make ginkgo
 
-    - name: Build Docker images
-      run: |
-        make controller-docker-build
-        make webhook-docker-build
+    - name: Build controller image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./cmd/controller/Dockerfile
+        tags: controller:latest
+        load: true
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build webhook image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./cmd/webhook/Dockerfile
+        tags: webhook:latest
+        load: true
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
     - name: Load images into kind cluster
       run: |
@@ -194,8 +209,8 @@ jobs:
         ]'
         
         # Wait for deployments to be ready
-        kubectl wait --for=condition=Available deployment/namespacelabel-controller-manager -n namespacelabel-system --timeout=300s
-        kubectl wait --for=condition=Available deployment/namespacelabel-webhook -n namespacelabel-system --timeout=300s
+        kubectl wait --for=condition=Available deployment/namespacelabel-controller-manager -n namespacelabel-system --timeout=30s
+        kubectl wait --for=condition=Available deployment/namespacelabel-webhook -n namespacelabel-system --timeout=30s
         
         # Verify deployment status
         kubectl get pods -n namespacelabel-system
