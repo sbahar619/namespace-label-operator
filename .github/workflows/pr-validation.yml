@@ -190,9 +190,17 @@ jobs:
       run: make test-e2e
       timeout-minutes: 20
 
-    - name: Cleanup kind cluster
-      if: always()
-      run: kind delete cluster --name namespacelabel-e2e
+    - name: Get pod logs on failure
+      if: failure()
+      run: |
+        kubectl logs deployment/namespacelabel-controller-manager -n namespacelabel-system --tail=100
+        kubectl get pods -n namespacelabel-system -o wide
+        kubectl describe pods -n namespacelabel-system
+        kubectl logs deployment/namespacelabel-webhook -n namespacelabel-system --tail=100
+
+        - name: Cleanup kind cluster
+          if: always()
+          run: kind delete cluster --name namespacelabel-e2e
 
   # Job 4: Build Validation
   build:
