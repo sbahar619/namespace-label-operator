@@ -74,6 +74,7 @@ type NamespaceLabelStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:path=namespacelabels,scope=Namespaced,shortName=nsl
 
 // NamespaceLabel is the Schema for the namespacelabels API
 type NamespaceLabel struct {
