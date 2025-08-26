@@ -152,7 +152,7 @@ jobs:
         go tool cover -html=cover.out -o coverage.html
 
     - name: Upload coverage reports
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       with:
         file: ./cover.out
         flags: unittests
