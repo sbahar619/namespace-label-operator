@@ -1,0 +1,44 @@
+name: 'Setup Go Environment'
+description: 'Sets up Go with caching and dependency management'
+
+inputs:
+  go-version:
+    description: 'Go version to use'
+    required: true
+    default: '1.21'
+  cache-dependency-path:
+    description: 'Path to dependency files for cache key'
+    required: false
+    default: '**/go.sum'
+
+outputs:
+  cache-key:
+    description: 'Generated cache key for Go modules and build cache'
+    value: ${{ steps.cache-key.outputs.key }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: false  # We'll handle caching manually for better control
+
+    - name: Generate cache key
+      id: cache-key
+      shell: bash
+      run: |
+        echo "key=${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles(inputs.cache-dependency-path, 'Makefile') }}" >> $GITHUB_OUTPUT
+
+    - name: Cache Go modules and tools
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+          ./bin/
+        key: ${{ steps.cache-key.outputs.key }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ inputs.go-version }}-
+          ${{ runner.os }}-go-

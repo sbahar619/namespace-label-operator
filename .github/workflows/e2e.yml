@@ -1,0 +1,139 @@
+name: E2E Tests
+
+on:
+  workflow_run:
+    workflows: ["Test"]
+    types: [completed]
+    branches: [main, develop]  # Only run E2E for main/develop branches
+  push:
+    branches: [main, develop]  # Direct pushes to main/develop (no PR)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+  workflow_dispatch:  # Allow manual triggering
+  schedule:
+    - cron: '0 2 * * *'  # Nightly at 2 AM
+
+env:
+  GO_VERSION: '1.21'
+
+jobs:
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    # Only run if Test workflow succeeded or this is a manual/scheduled run
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      github.event_name == 'schedule' ||
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go environment
+      uses: ./.github/actions/setup-go
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Create kind cluster
+      uses: helm/kind-action@v1.8.0
+      with:
+        cluster_name: namespacelabel-e2e
+        kubectl_version: v1.28.0
+
+    - name: Install test dependencies
+      run: make ginkgo
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    # Build images (fast due to Docker layer caching)
+    - name: Build controller image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./cmd/controller/Dockerfile
+        tags: controller:latest
+        load: true
+        cache-from: type=gha,scope=controller
+        platforms: linux/amd64
+
+    - name: Build webhook image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./cmd/webhook/Dockerfile
+        tags: webhook:latest
+        load: true
+        cache-from: type=gha,scope=webhook
+        platforms: linux/amd64
+
+    - name: Load images to kind
+      run: |
+        echo "Loading images to kind cluster..."
+        kind load docker-image controller:latest --name namespacelabel-e2e
+        kind load docker-image webhook:latest --name namespacelabel-e2e
+        echo "✅ Images loaded to kind cluster"
+
+    - name: Deploy to cluster
+      run: |
+        # Deploy controller and webhook with correct image references
+        make deploy CONTROLLER_IMG=controller:latest WEBHOOK_IMG=webhook:latest
+
+        # Patch controller deployment for local images - patch both manager and kube-rbac-proxy containers
+        kubectl patch deployment namespacelabel-controller-manager -n namespacelabel-system --type=json --patch '[
+          {
+            "op": "replace",
+            "path": "/spec/template/spec/containers/1/imagePullPolicy",
+            "value": "IfNotPresent"
+          }
+        ]'
+
+        # Patch webhook deployment for local images
+        kubectl patch deployment namespacelabel-webhook-server -n namespacelabel-system --type=json --patch '[
+          {
+            "op": "replace",
+            "path": "/spec/template/spec/containers/0/imagePullPolicy",
+            "value": "IfNotPresent"
+          }
+        ]'
+        
+        # Wait for deployments to be ready
+        echo "Waiting for deployments to be ready..."
+        kubectl wait --for=condition=Available deployment/namespacelabel-controller-manager -n namespacelabel-system --timeout=600s
+        kubectl wait --for=condition=Available deployment/namespacelabel-webhook-server -n namespacelabel-system --timeout=300s
+        
+        # Verify deployment success
+        echo "✅ Deployments ready. Final verification:"
+        kubectl get deployments,pods -n namespacelabel-system -o wide
+
+    - name: Run E2E tests
+      run: make test-e2e
+      timeout-minutes: 20
+
+    - name: Debug on failure
+      if: failure()
+      run: |
+        echo "=== 🔍 Debug Information ==="
+        
+        echo "📋 Cluster Resources:"
+        kubectl get deployments,pods,events -n namespacelabel-system -o wide || true
+        
+        echo "📝 Pod Details:"
+        kubectl describe pods -n namespacelabel-system || true
+        
+        echo "📄 Controller Logs:"
+        kubectl logs deployment/namespacelabel-controller-manager -n namespacelabel-system --all-containers=true --tail=100 || true
+        
+        echo "📄 Webhook Logs:"
+        kubectl logs deployment/namespacelabel-webhook-server -n namespacelabel-system --tail=100 || true
+        
+        echo "🐳 Docker Images (for debugging):"
+        docker images | grep -E "(controller|webhook)" || true
+
+    - name: Cleanup kind cluster
+      if: always()
+      run: kind delete cluster --name namespacelabel-e2e

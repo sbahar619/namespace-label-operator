@@ -1,0 +1,146 @@
+name: CI Summary
+
+on:
+  workflow_run:
+    workflows: ["E2E Tests"]
+    types: [completed]
+    branches: [main, develop]
+  workflow_dispatch:  # Allow manual triggering for testing
+
+jobs:
+  overall-status:
+    name: Overall CI Status
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Get workflow run details
+      id: workflow-details
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Get the E2E workflow run that triggered this
+          const e2eRun = context.payload.workflow_run;
+          
+          // Get recent workflow runs for this commit/branch
+          const { data: runs } = await github.rest.actions.listWorkflowRunsForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            head_sha: e2eRun?.head_sha || context.sha,
+            per_page: 50
+          });
+          
+          // Find the most recent runs for each workflow
+          const testRun = runs.workflow_runs.find(run => 
+            run.name === 'Test' && run.head_sha === (e2eRun?.head_sha || context.sha)
+          );
+          
+          const e2eRunDetails = e2eRun || runs.workflow_runs.find(run => 
+            run.name === 'E2E Tests' && run.head_sha === (e2eRun?.head_sha || context.sha)
+          );
+          
+          // Set outputs
+          core.setOutput('test_status', testRun?.conclusion || 'not_found');
+          core.setOutput('test_url', testRun?.html_url || '');
+          core.setOutput('e2e_status', e2eRunDetails?.conclusion || 'not_found');
+          core.setOutput('e2e_url', e2eRunDetails?.html_url || '');
+          core.setOutput('commit_sha', e2eRun?.head_sha || context.sha);
+          core.setOutput('branch', e2eRun?.head_branch || context.ref);
+
+    - name: Generate CI Summary Report
+      run: |
+        echo "# 🏗️ CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** \`${{ steps.workflow-details.outputs.commit_sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** \`${{ steps.workflow-details.outputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## 📊 Workflow Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Test workflow status
+        TEST_STATUS="${{ steps.workflow-details.outputs.test_status }}"
+        TEST_URL="${{ steps.workflow-details.outputs.test_url }}"
+        if [ "$TEST_STATUS" = "success" ]; then
+          echo "✅ **Test Workflow**: Passed" >> $GITHUB_STEP_SUMMARY
+        elif [ "$TEST_STATUS" = "failure" ]; then
+          echo "❌ **Test Workflow**: Failed" >> $GITHUB_STEP_SUMMARY
+        elif [ "$TEST_STATUS" = "cancelled" ]; then
+          echo "⏹️ **Test Workflow**: Cancelled" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❓ **Test Workflow**: $TEST_STATUS" >> $GITHUB_STEP_SUMMARY
+        fi
+        [ -n "$TEST_URL" ] && echo "   - [View Test Results]($TEST_URL)" >> $GITHUB_STEP_SUMMARY
+        
+        # E2E workflow status
+        E2E_STATUS="${{ steps.workflow-details.outputs.e2e_status }}"
+        E2E_URL="${{ steps.workflow-details.outputs.e2e_url }}"
+        if [ "$E2E_STATUS" = "success" ]; then
+          echo "✅ **E2E Tests Workflow**: Passed" >> $GITHUB_STEP_SUMMARY
+        elif [ "$E2E_STATUS" = "failure" ]; then
+          echo "❌ **E2E Tests Workflow**: Failed" >> $GITHUB_STEP_SUMMARY
+        elif [ "$E2E_STATUS" = "cancelled" ]; then
+          echo "⏹️ **E2E Tests Workflow**: Cancelled" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❓ **E2E Tests Workflow**: $E2E_STATUS" >> $GITHUB_STEP_SUMMARY
+        fi
+        [ -n "$E2E_URL" ] && echo "   - [View E2E Results]($E2E_URL)" >> $GITHUB_STEP_SUMMARY
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+    - name: Determine Overall Status
+      id: overall-status
+      run: |
+        TEST_STATUS="${{ steps.workflow-details.outputs.test_status }}"
+        E2E_STATUS="${{ steps.workflow-details.outputs.e2e_status }}"
+        
+        echo "=== CI Pipeline Status Check ===" 
+        echo "Test: $TEST_STATUS"
+        echo "E2E: $E2E_STATUS"
+        
+        # Determine overall status
+        if [ "$TEST_STATUS" = "success" ] && [ "$E2E_STATUS" = "success" ]; then
+          OVERALL_STATUS="success"
+          STATUS_EMOJI="✅"
+          STATUS_MESSAGE="All CI workflows completed successfully!"
+        elif [[ "$TEST_STATUS" =~ ^(failure|cancelled)$ ]] || [[ "$E2E_STATUS" =~ ^(failure|cancelled)$ ]]; then
+          OVERALL_STATUS="failure"
+          STATUS_EMOJI="❌"
+          STATUS_MESSAGE="One or more CI workflows failed or were cancelled."
+        else
+          OVERALL_STATUS="unknown"
+          STATUS_EMOJI="❓"
+          STATUS_MESSAGE="CI pipeline status is unclear. Some workflows may not have run."
+        fi
+        
+        echo "overall_status=$OVERALL_STATUS" >> $GITHUB_OUTPUT
+        echo "status_emoji=$STATUS_EMOJI" >> $GITHUB_OUTPUT
+        echo "status_message=$STATUS_MESSAGE" >> $GITHUB_OUTPUT
+        
+        # Add to summary
+        echo "## 🎯 Overall Status" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "$STATUS_EMOJI **$STATUS_MESSAGE**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Add deployment readiness
+        if [ "$OVERALL_STATUS" = "success" ]; then
+          echo "🚀 **Ready for deployment!**" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "🔧 **Not ready for deployment** - Please fix failing workflows." >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Set Final Status
+      run: |
+        OVERALL_STATUS="${{ steps.overall-status.outputs.overall_status }}"
+        STATUS_MESSAGE="${{ steps.overall-status.outputs.status_message }}"
+        
+        echo "$STATUS_MESSAGE"
+        
+        if [ "$OVERALL_STATUS" = "failure" ]; then
+          echo "❌ CI Pipeline failed - check individual workflow results above"
+          exit 1
+        elif [ "$OVERALL_STATUS" = "success" ]; then
+          echo "✅ CI Pipeline completed successfully"
+        else
+          echo "❓ CI Pipeline status unclear"
+          exit 1
+        fi
