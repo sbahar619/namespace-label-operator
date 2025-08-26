@@ -12,6 +12,13 @@ on:
       - 'docs/**'
       - '.gitignore'
       - 'LICENSE'
+  pull_request:  # Run E2E tests on PRs
+    types: [opened, synchronize, reopened]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
   workflow_dispatch:  # Allow manual triggering
   schedule:
     - cron: '0 2 * * *'  # Nightly at 2 AM
@@ -23,11 +30,12 @@ jobs:
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
-    # Only run if Test workflow succeeded or this is a manual/scheduled run
+    # Only run if Test workflow succeeded or this is a manual/scheduled/PR run
     if: |
       github.event_name == 'workflow_dispatch' || 
       github.event_name == 'schedule' ||
       github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     steps:
     - name: Checkout code
