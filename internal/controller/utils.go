@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	labelsv1alpha1 "github.com/sbahar619/namespace-label-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -92,12 +93,23 @@ func isLabelProtected(labelKey string, protectionPatterns []string) bool {
 			continue
 		}
 
+		// Handle problematic patterns that might cause issues
+		// Patterns like "**/*" are not valid filepath patterns
+		if strings.Contains(pattern, "**") {
+			// Convert double wildcards to single wildcards for this context
+			pattern = strings.ReplaceAll(pattern, "**", "*")
+		}
+
 		// Use filepath.Match for glob pattern matching
-		if matched, err := filepath.Match(pattern, labelKey); err == nil && matched {
+		matched, err := filepath.Match(pattern, labelKey)
+		if err != nil {
+			// If there's an error in pattern matching, log it but continue
+			// This prevents malformed patterns from breaking protection
+			continue
+		}
+		if matched {
 			return true
 		}
-		// If there's an error in pattern matching, log it but continue
-		// This prevents malformed patterns from breaking protection
 	}
 	return false
 }
