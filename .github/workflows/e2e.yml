@@ -1,8 +1,8 @@
-name: E2E
+name: E2E Tests
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows: ["Build"]
     types: [completed]
     branches: [main, develop]  # Only run E2E for main/develop branches
   push:
