@@ -176,33 +176,3 @@ jobs:
           exit 1
         fi
         echo "✅ Coverage ${COVERAGE}% meets threshold"
-
-  # Summary job that depends on all test jobs
-  test-summary:
-    name: Summary
-    runs-on: ubuntu-latest
-    needs: 
-      - dependencies
-      - build-check
-      - code-quality
-      - unit-tests
-    if: always()
-    steps:
-    - name: Check all jobs status
-      run: |
-        echo "Test Job Results:"
-        echo "- Dependencies: ${{ needs.dependencies.result }}"
-        echo "- Build Check: ${{ needs.build-check.result }}"
-        echo "- Code Quality: ${{ needs.code-quality.result }}"
-        echo "- Unit Tests: ${{ needs.unit-tests.result }}"
-        
-        # Check if any required jobs failed
-        if [ "${{ needs.dependencies.result }}" != "success" ] || \
-           [ "${{ needs.build-check.result }}" != "success" ] || \
-           [ "${{ needs.code-quality.result }}" != "success" ] || \
-           [ "${{ needs.unit-tests.result }}" != "success" ]; then
-          echo "❌ One or more test jobs failed"
-          exit 1
-        fi
-        
-        echo "✅ All test jobs completed successfully!"

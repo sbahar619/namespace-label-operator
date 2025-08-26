@@ -66,27 +66,3 @@ jobs:
         cache-from: type=gha,scope=webhook
         cache-to: type=gha,mode=max,scope=webhook
         platforms: linux/amd64
-
-  # Summary job that depends on all build jobs
-  build-summary:
-    name: Summary
-    runs-on: ubuntu-latest
-    needs: 
-      - build-controller
-      - build-webhook
-    if: always()
-    steps:
-    - name: Check all jobs status
-      run: |
-        echo "Build Job Results:"
-        echo "- Build Controller: ${{ needs.build-controller.result }}"
-        echo "- Build Webhook: ${{ needs.build-webhook.result }}"
-        
-        # Check if any required jobs failed
-        if [ "${{ needs.build-controller.result }}" != "success" ] || \
-           [ "${{ needs.build-webhook.result }}" != "success" ]; then
-          echo "❌ One or more build jobs failed"
-          exit 1
-        fi
-        
-        echo "✅ All build jobs completed successfully!"
