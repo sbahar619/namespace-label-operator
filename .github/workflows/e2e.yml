@@ -74,29 +74,10 @@ jobs:
 
     - name: Load images to kind
       run: |
-        echo "Checking built images in runner..."
-        docker images | grep -E "(controller|webhook)"
-        
-        echo "Loading controller image to kind cluster..."
-        kind load docker-image controller:latest --name namespacelabel-e2e || { 
-          echo "Failed to load controller image"; 
-          docker images; 
-          exit 1; 
-        }
-        
-        echo "Loading webhook image to kind cluster..."
-        kind load docker-image webhook:latest --name namespacelabel-e2e || { 
-          echo "Failed to load webhook image"; 
-          docker images; 
-          exit 1; 
-        }
-        
-        echo "Verifying images are loaded in kind cluster..."
-        docker exec namespacelabel-e2e-control-plane crictl images | grep -E "(controller|webhook)" || {
-          echo "Images not found in kind cluster!";
-          docker exec namespacelabel-e2e-control-plane crictl images;
-          exit 1;
-        }
+        echo "Loading images to kind cluster..."
+        kind load docker-image controller:latest --name namespacelabel-e2e
+        kind load docker-image webhook:latest --name namespacelabel-e2e
+        echo "✅ Images loaded to kind cluster"
 
     - name: Deploy to cluster
       run: |
@@ -124,48 +105,38 @@ jobs:
           }
         ]'
         
-        # Show deployment status before waiting
-        echo "Deployment status:"
-        kubectl get deployments -n namespacelabel-system
-        kubectl describe deployment namespacelabel-controller-manager -n namespacelabel-system
-        
-        # Wait for deployments to be ready with longer timeout
-        echo "Waiting for controller manager to be ready..."
+        # Wait for deployments to be ready
+        echo "Waiting for deployments to be ready..."
         kubectl wait --for=condition=Available deployment/namespacelabel-controller-manager -n namespacelabel-system --timeout=600s
-        
-        echo "Waiting for webhook server to be ready..."
         kubectl wait --for=condition=Available deployment/namespacelabel-webhook-server -n namespacelabel-system --timeout=300s
         
-        # Final verification
-        kubectl get pods -n namespacelabel-system -o wide
+        # Verify deployment success
+        echo "✅ Deployments ready. Final verification:"
+        kubectl get deployments,pods -n namespacelabel-system -o wide
 
     - name: Run E2E tests
       run: make test-e2e
       timeout-minutes: 20
 
-    - name: Get pod logs on failure
+    - name: Debug on failure
       if: failure()
       run: |
-        echo "=== Debug Information ==="
-        echo "Docker images in runner:"
-        docker images | grep -E "(controller|webhook)" || true
+        echo "=== 🔍 Debug Information ==="
         
-        echo "Images in kind cluster:"
-        docker exec namespacelabel-e2e-control-plane crictl images | grep -E "(controller|webhook)" || true
+        echo "📋 Cluster Resources:"
+        kubectl get deployments,pods,events -n namespacelabel-system -o wide || true
         
-        echo "=== Controller logs ==="
-        kubectl logs deployment/namespacelabel-controller-manager -n namespacelabel-system --all-containers=true --tail=100 || true
-        
-        echo "=== Webhook logs ==="
-        kubectl logs deployment/namespacelabel-webhook-server -n namespacelabel-system --tail=100 || true
-        
-        echo "=== Pod status ==="
-        kubectl get pods -n namespacelabel-system -o wide || true
+        echo "📝 Pod Details:"
         kubectl describe pods -n namespacelabel-system || true
         
-        echo "=== Deployment status ==="
-        kubectl describe deployment namespacelabel-controller-manager -n namespacelabel-system || true
-        kubectl describe deployment namespacelabel-webhook-server -n namespacelabel-system || true
+        echo "📄 Controller Logs:"
+        kubectl logs deployment/namespacelabel-controller-manager -n namespacelabel-system --all-containers=true --tail=100 || true
+        
+        echo "📄 Webhook Logs:"
+        kubectl logs deployment/namespacelabel-webhook-server -n namespacelabel-system --tail=100 || true
+        
+        echo "🐳 Docker Images (for debugging):"
+        docker images | grep -E "(controller|webhook)" || true
 
     - name: Cleanup kind cluster
       if: always()
