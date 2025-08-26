@@ -23,7 +23,7 @@ jobs:
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
-    # Only run if CI workflow succeeded or this is a manual/scheduled run
+    # Only run if Build workflow succeeded or this is a manual/scheduled run
     if: |
       github.event_name == 'workflow_dispatch' || 
       github.event_name == 'schedule' ||
@@ -51,41 +51,8 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    # Try to download artifacts from CI workflow first, fallback to building
-    - name: Download controller image artifact
-      id: download-controller
-      uses: actions/download-artifact@v4
-      continue-on-error: true
-      with:
-        name: controller-image
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        run-id: ${{ github.event.workflow_run.id }}
-
-    - name: Download webhook image artifact  
-      id: download-webhook
-      uses: actions/download-artifact@v4
-      continue-on-error: true
-      with:
-        name: webhook-image
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        run-id: ${{ github.event.workflow_run.id }}
-
-    # Load artifacts if downloaded successfully
-    - name: Load controller image from artifact
-      if: steps.download-controller.outcome == 'success'
-      run: |
-        docker load < controller-image.tar.gz
-        docker tag controller:${{ github.sha }} controller:latest
-
-    - name: Load webhook image from artifact
-      if: steps.download-webhook.outcome == 'success'
-      run: |
-        docker load < webhook-image.tar.gz  
-        docker tag webhook:${{ github.sha }} webhook:latest
-
-    # Fallback: build images if artifacts not available (manual/scheduled runs)
-    - name: Build controller image (fallback)
-      if: steps.download-controller.outcome != 'success'
+    # Build images (fast due to layer caching from Build workflow)
+    - name: Build controller image
       uses: docker/build-push-action@v6
       with:
         context: .
@@ -95,8 +62,7 @@ jobs:
         cache-from: type=gha,scope=controller
         platforms: linux/amd64
 
-    - name: Build webhook image (fallback)
-      if: steps.download-webhook.outcome != 'success'
+    - name: Build webhook image
       uses: docker/build-push-action@v6
       with:
         context: .

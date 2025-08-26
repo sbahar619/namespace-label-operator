@@ -41,16 +41,6 @@ jobs:
         cache-to: type=gha,mode=max,scope=controller
         platforms: linux/amd64
 
-    - name: Save controller image
-      run: docker save controller:${{ github.sha }} | gzip > controller-image.tar.gz
-
-    - name: Upload controller image artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: controller-image
-        path: controller-image.tar.gz
-        retention-days: 1
-
   build-webhook:
     name: Build Webhook
     runs-on: ubuntu-latest
@@ -76,16 +66,6 @@ jobs:
         cache-from: type=gha,scope=webhook
         cache-to: type=gha,mode=max,scope=webhook
         platforms: linux/amd64
-
-    - name: Save webhook image
-      run: docker save webhook:${{ github.sha }} | gzip > webhook-image.tar.gz
-
-    - name: Upload webhook image artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: webhook-image
-        path: webhook-image.tar.gz
-        retention-days: 1
 
   # Summary job that depends on all build jobs
   build-summary:
