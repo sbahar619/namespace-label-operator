@@ -34,10 +34,6 @@ jobs:
             run.name === 'Test' && run.head_sha === (e2eRun?.head_sha || context.sha)
           );
           
-          const buildRun = runs.workflow_runs.find(run => 
-            run.name === 'Build' && run.head_sha === (e2eRun?.head_sha || context.sha)
-          );
-          
           const e2eRunDetails = e2eRun || runs.workflow_runs.find(run => 
             run.name === 'E2E Tests' && run.head_sha === (e2eRun?.head_sha || context.sha)
           );
@@ -45,8 +41,6 @@ jobs:
           // Set outputs
           core.setOutput('test_status', testRun?.conclusion || 'not_found');
           core.setOutput('test_url', testRun?.html_url || '');
-          core.setOutput('build_status', buildRun?.conclusion || 'not_found');
-          core.setOutput('build_url', buildRun?.html_url || '');
           core.setOutput('e2e_status', e2eRunDetails?.conclusion || 'not_found');
           core.setOutput('e2e_url', e2eRunDetails?.html_url || '');
           core.setOutput('commit_sha', e2eRun?.head_sha || context.sha);
@@ -76,20 +70,6 @@ jobs:
         fi
         [ -n "$TEST_URL" ] && echo "   - [View Test Results]($TEST_URL)" >> $GITHUB_STEP_SUMMARY
         
-        # Build workflow status  
-        BUILD_STATUS="${{ steps.workflow-details.outputs.build_status }}"
-        BUILD_URL="${{ steps.workflow-details.outputs.build_url }}"
-        if [ "$BUILD_STATUS" = "success" ]; then
-          echo "✅ **Build Workflow**: Passed" >> $GITHUB_STEP_SUMMARY
-        elif [ "$BUILD_STATUS" = "failure" ]; then
-          echo "❌ **Build Workflow**: Failed" >> $GITHUB_STEP_SUMMARY
-        elif [ "$BUILD_STATUS" = "cancelled" ]; then
-          echo "⏹️ **Build Workflow**: Cancelled" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❓ **Build Workflow**: $BUILD_STATUS" >> $GITHUB_STEP_SUMMARY
-        fi
-        [ -n "$BUILD_URL" ] && echo "   - [View Build Results]($BUILD_URL)" >> $GITHUB_STEP_SUMMARY
-        
         # E2E workflow status
         E2E_STATUS="${{ steps.workflow-details.outputs.e2e_status }}"
         E2E_URL="${{ steps.workflow-details.outputs.e2e_url }}"
@@ -110,20 +90,18 @@ jobs:
       id: overall-status
       run: |
         TEST_STATUS="${{ steps.workflow-details.outputs.test_status }}"
-        BUILD_STATUS="${{ steps.workflow-details.outputs.build_status }}"
         E2E_STATUS="${{ steps.workflow-details.outputs.e2e_status }}"
         
         echo "=== CI Pipeline Status Check ===" 
         echo "Test: $TEST_STATUS"
-        echo "Build: $BUILD_STATUS" 
         echo "E2E: $E2E_STATUS"
         
         # Determine overall status
-        if [ "$TEST_STATUS" = "success" ] && [ "$BUILD_STATUS" = "success" ] && [ "$E2E_STATUS" = "success" ]; then
+        if [ "$TEST_STATUS" = "success" ] && [ "$E2E_STATUS" = "success" ]; then
           OVERALL_STATUS="success"
           STATUS_EMOJI="✅"
           STATUS_MESSAGE="All CI workflows completed successfully!"
-        elif [[ "$TEST_STATUS" =~ ^(failure|cancelled)$ ]] || [[ "$BUILD_STATUS" =~ ^(failure|cancelled)$ ]] || [[ "$E2E_STATUS" =~ ^(failure|cancelled)$ ]]; then
+        elif [[ "$TEST_STATUS" =~ ^(failure|cancelled)$ ]] || [[ "$E2E_STATUS" =~ ^(failure|cancelled)$ ]]; then
           OVERALL_STATUS="failure"
           STATUS_EMOJI="❌"
           STATUS_MESSAGE="One or more CI workflows failed or were cancelled."

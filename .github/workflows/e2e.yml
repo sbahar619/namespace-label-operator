@@ -2,7 +2,7 @@ name: E2E Tests
 
 on:
   workflow_run:
-    workflows: ["Build"]
+    workflows: ["Test"]
     types: [completed]
     branches: [main, develop]  # Only run E2E for main/develop branches
   push:
@@ -23,7 +23,7 @@ jobs:
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
-    # Only run if Build workflow succeeded or this is a manual/scheduled run
+    # Only run if Test workflow succeeded or this is a manual/scheduled run
     if: |
       github.event_name == 'workflow_dispatch' || 
       github.event_name == 'schedule' ||
